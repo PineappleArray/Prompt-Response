@@ -5,7 +5,7 @@ import (
 )
 
 func TestClassify(t *testing.T) {
-	c := newHeuristic(HeuristicConfig{Weights: SignalWeights{Length: 0.25, Code: 0.35, Reasoning: 0.25, Complexity: 0.15}, Threshold: 0.5})
+	c := newHeuristic(HeuristicConfig{Weights: SignalWeights{Length: 0.25, Code: 0.35, Reasoning: 0.25, Complexity: 0.15}, Threshold: 0.35})
 
 	cases := []struct {
 		name     string

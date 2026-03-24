@@ -70,9 +70,16 @@ func (h *HeuristicClassifier) scoreLength(tokens int) float64 {
 
 // scoreCode: 1.0 if code block present, else keyword ratio
 func (h *HeuristicClassifier) scoreCode(req Request) float64 {
-	if req.HasCode {
-		return 1.0
-	}
+	 if req.HasCode {
+        return 1.0
+    }
+
+	strongSignals := []string{"implement", "build", "write", "create"}
+	for _, s := range strongSignals {
+        if strings.Contains(strings.ToLower(req.UserMessage), s) {
+            return 1.0
+        }
+    }
 	hits := h.countKeywords(req.UserMessage, h.keywords.Code)
 	return math.Min(1.0, float64(hits)/3.0)
 }
@@ -126,7 +133,7 @@ func (h *HeuristicClassifier) buildReason(
 func defaultKeywords() KeywordSets {
 	return KeywordSets{
 		Code: []string{
-			"function", "implement", "algorithm", "class",
+			"function", "algorithm", "class",
 			"struct", "interface", "refactor", "debug",
 		},
 		Reasoning: []string{
