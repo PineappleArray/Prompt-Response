@@ -1,0 +1,17 @@
+replicas:
+  - id: replica-1
+    url: http://localhost:8001
+    model: Qwen/Qwen2.5-1.5B-Instruct
+    tier: small
+
+redis:
+  addr: localhost:6379
+
+weights:
+  w1: 0.6
+  w2: 0.3
+  w3: 0.1
+
+prefix_len: 512
+affinity_ttl: 5m
+threshold: 0.35

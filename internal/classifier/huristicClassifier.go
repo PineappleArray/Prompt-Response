@@ -30,7 +30,7 @@ type KeywordSets struct {
 	Complexity []string
 }
 
-func newHeuristic(cfg HeuristicConfig) *HeuristicClassifier {
+func NewHeuristic(cfg HeuristicConfig) *HeuristicClassifier {
 	return &HeuristicClassifier{
 		weights:   cfg.Weights,
 		threshold: cfg.Threshold,
