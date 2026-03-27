@@ -52,4 +52,11 @@ into the store. Then it checks which of the replicas are available to be used.
           |
           V
 Layer 4
+ 
+          |
+          |
+          V
+Layer 5 proxy sends the JSON to vLLM and Recieves the signal:
+When scorers sends the replica of the vLLM the handlers will point the request
+url to the address of the replica.
 ```
