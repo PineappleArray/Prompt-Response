@@ -37,6 +37,7 @@ func New(replicas []config.Replica) *Poller {
 		replicas: replicas,
 		states:   states,
 		interval: 2 * time.Second,
+		failures: make(map[string]int),
 	}
 }
 
