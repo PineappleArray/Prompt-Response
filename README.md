@@ -16,7 +16,7 @@ Partial Router Scalability: Currently there is a single router
 
 Current Layout:
 There are currently 5 layers in this project:
-'''
+```
 Layer 1 Proxy Handler (handler.go):
 Processes the Request
 type Request struct {
@@ -52,4 +52,4 @@ into the store. Then it checks which of the replicas are available to be used.
           |
           V
 Layer 4
-'''
+```
