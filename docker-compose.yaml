@@ -1,0 +1,15 @@
+services:
+  router:
+    build: .
+    ports:
+      - "8080:8080"
+    depends_on:
+      redis:
+        condition: service_started
+    environment:
+      - CONFIG_PATH=/config.yaml
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"

@@ -1,17 +1,43 @@
+listen_addr: ":8080"
+
 replicas:
-  - id: replica-1
+  - id: replica-small-1
     url: http://localhost:8001
     model: Qwen/Qwen2.5-1.5B-Instruct
     tier: small
 
+  - id: replica-large-1
+    url: http://localhost:8002
+    model: Qwen/Qwen2.5-7B-Instruct
+    tier: large
+
 redis:
   addr: localhost:6379
 
+# Scoring weights for replica selection (should sum to ~1.0).
+# cache_affinity: prefer replicas that already cached this system prompt prefix.
+# queue_depth:    prefer replicas with shorter request queues.
+# kv_cache_pressure: penalize replicas nearing GPU KV cache exhaustion
+#                    (at 90%+, vLLM evicts prefixes and preempts running requests).
+# baseline:       constant tiebreaker.
 weights:
-  w1: 0.6
-  w2: 0.3
-  w3: 0.1
+  cache_affinity: 0.50
+  queue_depth: 0.25
+  kv_cache_pressure: 0.15
+  baseline: 0.10
+
+# Classifier signal weights (should sum to ~1.0).
+# These determine how the 6-signal heuristic classifier scores request complexity.
+classifier:
+  length: 0.20
+  code: 0.30
+  reasoning: 0.15
+  complexity: 0.10
+  conv_depth: 0.10
+  output_length: 0.15
 
 prefix_len: 512
 affinity_ttl: 5m
 threshold: 0.35
+max_queue: 20
+poll_interval: 2s

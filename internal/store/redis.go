@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -35,5 +36,12 @@ func (r *RedisStore) SetAffinity(hash uint64, replicaID string, ttl time.Duratio
 	defer cancel()
 
 	key := fmt.Sprintf("pfx:%016x", hash)
-	r.client.Set(ctx, key, replicaID, ttl)
+	if err := r.client.Set(ctx, key, replicaID, ttl).Err(); err != nil {
+		slog.Warn("failed to set affinity in redis", "key", key, "replica", replicaID, "err", err)
+	}
+}
+
+// Ping checks Redis connectivity.
+func (r *RedisStore) Ping(ctx context.Context) error {
+	return r.client.Ping(ctx).Err()
 }
