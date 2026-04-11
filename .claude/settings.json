@@ -10,6 +10,46 @@
             "statusMessage": "Checking for destructive commands..."
           }
         ]
+      },
+      {
+        "matcher": "mcp__github__add_issue_comment",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo 'BLOCKED: Do not comment on issues. Let the code speak for itself.'",
+            "statusMessage": "Checking GitHub interaction policy..."
+          }
+        ]
+      },
+      {
+        "matcher": "mcp__github__add_comment_to_pending_review",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo 'BLOCKED: Do not post review comments. Commit fixes directly.'",
+            "statusMessage": "Checking GitHub interaction policy..."
+          }
+        ]
+      },
+      {
+        "matcher": "mcp__github__add_reply_to_pull_request_comment",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo 'BLOCKED: Do not reply on pull requests. Address feedback in code.'",
+            "statusMessage": "Checking GitHub interaction policy..."
+          }
+        ]
+      },
+      {
+        "matcher": "mcp__github__pull_request_review_write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo 'BLOCKED: Do not submit PR reviews. Use /review locally instead.'",
+            "statusMessage": "Checking GitHub interaction policy..."
+          }
+        ]
       }
     ],
     "PostToolUse": [

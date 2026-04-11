@@ -64,6 +64,16 @@ All tuning lives in `config.yaml`. Key knobs:
 - `affinity_ttl` — How long prefix-cache affinity entries persist (5m)
 - `max_queue` — Per-replica queue depth limit before shedding (20)
 
+## Contribution Workflow
+
+All contributions follow a code-only workflow. The commit history is the single source of truth for what changed and why.
+
+- Commit messages should be clear and self-contained. They are the only record that matters.
+- Do not comment on pull requests, issues, or review threads. Let the code speak for itself.
+- Do not post status updates, progress notes, or explanations on GitHub.
+- Do not create pull requests unless explicitly asked.
+- Never include session links, tracking URLs, or tool metadata in commits or PR descriptions.
+
 ## Skill Routing
 
 Available skills for this project:
