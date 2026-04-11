@@ -11,14 +11,25 @@ import (
 )
 
 type Config struct {
-	ListenAddr  string        `yaml:"listen_addr"`
-	Replicas    []Replica     `yaml:"replicas"`
-	Redis       Redis         `yaml:"redis"`
-	Weights     Weights       `yaml:"weights"`
-	PrefixLen   int           `yaml:"prefix_len"`
-	AffinityTTL time.Duration `yaml:"affinity_ttl"`
-	Threshold   float64       `yaml:"threshold"`
-	MaxQueue    float64       `yaml:"max_queue"`
+	ListenAddr   string            `yaml:"listen_addr"`
+	Replicas     []Replica         `yaml:"replicas"`
+	Redis        Redis             `yaml:"redis"`
+	Weights      Weights           `yaml:"weights"`
+	Classifier   ClassifierWeights `yaml:"classifier"`
+	PrefixLen    int               `yaml:"prefix_len"`
+	AffinityTTL  time.Duration     `yaml:"affinity_ttl"`
+	Threshold    float64           `yaml:"threshold"`
+	MaxQueue     float64           `yaml:"max_queue"`
+	PollInterval time.Duration     `yaml:"poll_interval"`
+}
+
+type ClassifierWeights struct {
+	Length       float64 `yaml:"length"`
+	Code         float64 `yaml:"code"`
+	Reasoning    float64 `yaml:"reasoning"`
+	Complexity   float64 `yaml:"complexity"`
+	ConvDepth    float64 `yaml:"conv_depth"`
+	OutputLength float64 `yaml:"output_length"`
 }
 
 type Replica struct {
@@ -67,6 +78,19 @@ func applyDefaults(cfg *Config) {
 	}
 	if cfg.AffinityTTL == 0 {
 		cfg.AffinityTTL = 5 * time.Minute
+	}
+	if cfg.PollInterval == 0 {
+		cfg.PollInterval = 2 * time.Second
+	}
+	// Classifier weight defaults
+	c := &cfg.Classifier
+	if c.Length == 0 && c.Code == 0 && c.Reasoning == 0 {
+		c.Length = 0.20
+		c.Code = 0.30
+		c.Reasoning = 0.15
+		c.Complexity = 0.10
+		c.ConvDepth = 0.10
+		c.OutputLength = 0.15
 	}
 }
 

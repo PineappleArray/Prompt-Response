@@ -37,27 +37,48 @@ type openAIRequest struct {
 }
 
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	// health/readiness endpoints
 	switch r.URL.Path {
 	case "/healthz":
+		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte(`{"status":"ok"}`))
 		return
 	case "/readyz":
 		h.handleReadiness(w)
 		return
+	case "/v1/models":
+		h.handleModels(w)
+		return
+	case "/v1/router/status":
+		h.handleRouterStatus(w)
+		return
+	}
+
+	if r.Method != http.MethodPost {
+		writeError(w, r, http.StatusMethodNotAllowed, "method_not_allowed", "only POST is supported for chat completions")
+		return
 	}
 
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
-		http.Error(w, "failed to read body", http.StatusBadRequest)
+		writeError(w, r, http.StatusBadRequest, "read_error", "failed to read request body")
 		return
 	}
 	r.Body = io.NopCloser(bytes.NewReader(body))
 
+	if len(body) == 0 {
+		writeError(w, r, http.StatusBadRequest, "empty_body", "request body is empty")
+		return
+	}
+
 	var req openAIRequest
 	if err := json.Unmarshal(body, &req); err != nil {
-		http.Error(w, "invalid JSON", http.StatusBadRequest)
+		writeError(w, r, http.StatusBadRequest, "invalid_json", "request body is not valid JSON")
+		return
+	}
+
+	if len(req.Messages) == 0 {
+		writeError(w, r, http.StatusBadRequest, "invalid_request", "messages array is required and must not be empty")
 		return
 	}
 
@@ -81,7 +102,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	replica := h.scorer.Pick(prefixHash, result.Tier)
 	if replica.ID == "" {
-		http.Error(w, "no healthy replicas", http.StatusServiceUnavailable)
+		writeError(w, r, http.StatusServiceUnavailable, "no_replicas", "no healthy replicas available")
 		return
 	}
 
@@ -102,7 +123,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	target, err := url.Parse(replica.URL)
 	if err != nil {
-		http.Error(w, "bad replica URL", http.StatusInternalServerError)
+		writeError(w, r, http.StatusInternalServerError, "internal_error", "internal routing error")
 		return
 	}
 
@@ -168,6 +189,86 @@ func (h *Handler) handleReadiness(w http.ResponseWriter) {
 	json.NewEncoder(w).Encode(map[string]any{
 		"status":   status,
 		"replicas": replicas,
+	})
+}
+
+// handleModels returns an OpenAI-compatible list of available models.
+func (h *Handler) handleModels(w http.ResponseWriter) {
+	type model struct {
+		ID      string `json:"id"`
+		Object  string `json:"object"`
+		OwnedBy string `json:"owned_by"`
+	}
+
+	seen := make(map[string]bool)
+	var models []model
+	for _, r := range h.cfg.Replicas {
+		if !seen[r.Model] {
+			seen[r.Model] = true
+			models = append(models, model{
+				ID:      r.Model,
+				Object:  "model",
+				OwnedBy: "prompt-response",
+			})
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{
+		"object": "list",
+		"data":   models,
+	})
+}
+
+// handleRouterStatus returns a detailed view of routing state for debugging.
+func (h *Handler) handleRouterStatus(w http.ResponseWriter) {
+	states := h.scorer.PollerSnapshot()
+
+	type replicaStatus struct {
+		ID          string  `json:"id"`
+		Model       string  `json:"model"`
+		Tier        string  `json:"tier"`
+		Healthy     bool    `json:"healthy"`
+		QueueDepth  int     `json:"queue_depth"`
+		KVCacheUtil float64 `json:"kv_cache_util"`
+		Running     int     `json:"running"`
+	}
+
+	var replicas []replicaStatus
+	healthyCount := 0
+	for _, r := range h.cfg.Replicas {
+		state := states[r.ID]
+		if state.Healthy {
+			healthyCount++
+		}
+		replicas = append(replicas, replicaStatus{
+			ID:          r.ID,
+			Model:       r.Model,
+			Tier:        string(r.Tier),
+			Healthy:     state.Healthy,
+			QueueDepth:  state.QueueDepth,
+			KVCacheUtil: state.KVCacheUtil,
+			Running:     state.Running,
+		})
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{
+		"status":         "running",
+		"total_replicas": len(h.cfg.Replicas),
+		"healthy_count":  healthyCount,
+		"replicas":       replicas,
+		"config": map[string]any{
+			"threshold":    h.cfg.Threshold,
+			"affinity_ttl": h.cfg.AffinityTTL.String(),
+			"max_queue":    h.cfg.MaxQueue,
+			"weights": map[string]float64{
+				"cache_affinity":    h.cfg.Weights.CacheAffinity,
+				"queue_depth":       h.cfg.Weights.QueueDepth,
+				"kv_cache_pressure": h.cfg.Weights.KVCachePressure,
+				"baseline":          h.cfg.Weights.Baseline,
+			},
+		},
 	})
 }
 

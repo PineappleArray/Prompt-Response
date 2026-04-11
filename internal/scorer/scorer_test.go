@@ -31,7 +31,7 @@ func TestPick_TierMatchedPreferred(t *testing.T) {
 		{ID: "large-1", URL: "http://l1", Tier: types.TierLarge},
 	}
 	mem := store.NewMemory()
-	poll := poller.New(replicas)
+	poll := poller.New(replicas, 0)
 
 	// Manually set both healthy with same queue
 	snap := poll.Snapshot()
@@ -54,7 +54,7 @@ func TestPick_FallbackWhenNoTierMatch(t *testing.T) {
 		{ID: "small-1", URL: "http://s1", Tier: types.TierSmall},
 	}
 	mem := store.NewMemory()
-	poll := poller.New(replicas)
+	poll := poller.New(replicas, 0)
 
 	s := New(replicas, mem, poll, defaultWeights(), 5*time.Minute, 20)
 	got := s.Pick(123, types.TierLarge) // no large tier exists
@@ -68,7 +68,7 @@ func TestPick_UnhealthySkipped(t *testing.T) {
 		{ID: "small-1", URL: "http://s1", Tier: types.TierSmall},
 		{ID: "small-2", URL: "http://s2", Tier: types.TierSmall},
 	}
-	poll := poller.New(replicas)
+	poll := poller.New(replicas, 0)
 
 	// Mark small-1 as unhealthy via 3 failures
 	for i := 0; i < 3; i++ {
@@ -90,7 +90,7 @@ func TestPick_CacheAffinityWins(t *testing.T) {
 	}
 	mem := store.NewMemory()
 	mem.SetAffinity(999, "small-2", 5*time.Minute)
-	poll := poller.New(replicas)
+	poll := poller.New(replicas, 0)
 
 	s := New(replicas, mem, poll, defaultWeights(), 5*time.Minute, 20)
 	got := s.Pick(999, types.TierSmall)
@@ -104,7 +104,7 @@ func TestPick_HighKVCachePressurePenalized(t *testing.T) {
 		{ID: "small-1", URL: "http://s1", Tier: types.TierSmall},
 		{ID: "small-2", URL: "http://s2", Tier: types.TierSmall},
 	}
-	poll := poller.New(replicas)
+	poll := poller.New(replicas, 0)
 
 	// small-1 has cache affinity but 95% KV cache pressure
 	poll.SetState("small-1", poller.State{Healthy: true, QueueDepth: 0, KVCacheUtil: 0.95})
@@ -132,7 +132,7 @@ func TestPick_AllUnhealthy(t *testing.T) {
 	replicas := []config.Replica{
 		{ID: "small-1", URL: "http://s1", Tier: types.TierSmall},
 	}
-	poll := poller.New(replicas)
+	poll := poller.New(replicas, 0)
 	for i := 0; i < 3; i++ {
 		poll.SimulateFailure("small-1")
 	}
@@ -150,7 +150,7 @@ func TestRecordHit(t *testing.T) {
 		{ID: "small-1", URL: "http://s1", Tier: types.TierSmall},
 	}
 	mem := store.NewMemory()
-	poll := poller.New(replicas)
+	poll := poller.New(replicas, 0)
 	s := New(replicas, mem, poll, defaultWeights(), 5*time.Minute, 20)
 
 	s.RecordHit(42, "small-1")

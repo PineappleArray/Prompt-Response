@@ -26,7 +26,18 @@ weights:
   kv_cache_pressure: 0.15
   baseline: 0.10
 
+# Classifier signal weights (should sum to ~1.0).
+# These determine how the 6-signal heuristic classifier scores request complexity.
+classifier:
+  length: 0.20
+  code: 0.30
+  reasoning: 0.15
+  complexity: 0.10
+  conv_depth: 0.10
+  output_length: 0.15
+
 prefix_len: 512
 affinity_ttl: 5m
 threshold: 0.35
 max_queue: 20
+poll_interval: 2s

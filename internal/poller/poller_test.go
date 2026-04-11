@@ -7,14 +7,15 @@ import (
 	"time"
 
 	"prompt-response/internal/config"
+	"prompt-response/internal/types"
 )
 
 // helper — builds a poller with one replica pointing at a test server URL
 func newTestPoller(url string) *Poller {
 	replicas := []config.Replica{
-		{ID: "replica-1", URL: url, Model: "test", Tier: "small"},
+		{ID: "replica-1", URL: url, Model: "test", Tier: types.TierSmall},
 	}
-	return New(replicas)
+	return New(replicas, 0)
 }
 
 // Test 1 — healthy replica stays healthy
@@ -163,9 +164,9 @@ func TestCheckHealth_MultipleReplicasIndependent(t *testing.T) {
 	defer sick.Close()
 
 	p := New([]config.Replica{
-		{ID: "replica-1", URL: healthy.URL, Model: "test", Tier: "small"},
-		{ID: "replica-2", URL: sick.URL, Model: "test", Tier: "small"},
-	})
+		{ID: "replica-1", URL: healthy.URL, Model: "test", Tier: types.TierSmall},
+		{ID: "replica-2", URL: sick.URL, Model: "test", Tier: types.TierSmall},
+	}, 0)
 
 	// run 3 checks on both
 	for i := 0; i < 3; i++ {

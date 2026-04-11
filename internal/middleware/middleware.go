@@ -4,8 +4,10 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"fmt"
 	"log/slog"
 	"net/http"
+	"sync/atomic"
 	"time"
 )
 
@@ -31,9 +33,7 @@ func RequestID(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		id := r.Header.Get("X-Request-ID")
 		if id == "" {
-			b := make([]byte, 8)
-			rand.Read(b)
-			id = hex.EncodeToString(b)
+			id = generateRequestID()
 		}
 		w.Header().Set("X-Request-ID", id)
 
@@ -45,6 +45,16 @@ func RequestID(next http.Handler) http.Handler {
 		)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
+}
+
+var fallbackCounter atomic.Uint64
+
+func generateRequestID() string {
+	b := make([]byte, 8)
+	if _, err := rand.Read(b); err != nil {
+		return fmt.Sprintf("req-%d", fallbackCounter.Add(1))
+	}
+	return hex.EncodeToString(b)
 }
 
 type requestIDKey struct{}

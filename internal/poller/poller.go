@@ -30,15 +30,18 @@ type Poller struct {
 	failures map[string]int
 }
 
-func New(replicas []config.Replica) *Poller {
+func New(replicas []config.Replica, interval time.Duration) *Poller {
 	states := make(map[string]State)
 	for _, r := range replicas {
 		states[r.ID] = State{Healthy: true}
 	}
+	if interval == 0 {
+		interval = 2 * time.Second
+	}
 	return &Poller{
 		replicas: replicas,
 		states:   states,
-		interval: 2 * time.Second,
+		interval: interval,
 		failures: make(map[string]int),
 	}
 }
