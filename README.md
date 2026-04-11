@@ -13,50 +13,50 @@ Routes OpenAI-compatible requests to vLLM replicas by classifying request comple
                               │
                               ▼
 ┌──────────────────────────────────────────────────────────────────┐
-│                        HTTP Middleware                            │
+│                        HTTP Middleware                           │
 │          Request ID ─► Timeout (30s) ─► Body Limit (1MB)         │
-│                              │                                    │
-│                              ▼                                    │
+│                              │                                   │
+│                              ▼                                   │
 │  ┌───────────────────────────────────────────────────────────┐   │
-│  │                    Proxy Handler                           │   │
-│  │  Parse OpenAI JSON ─► extract system prompt + user msg     │   │
-│  │  Hash system prompt (xxhash64) for cache affinity key      │   │
-│  │  Count conversation turns, detect code blocks              │   │
-│  │                         │                                  │   │
-│  │                         ▼                                  │   │
-│  │  ┌──────────────────────────────────────────┐              │   │
-│  │  │          6-Signal Classifier              │              │   │
-│  │  │  length · code · reasoning · complexity   │              │   │
-│  │  │  conv_depth · output_length (SJF)         │              │   │
-│  │  │  ────────────────────────────             │              │   │
-│  │  │  score ≥ threshold → large tier           │              │   │
-│  │  │  score < threshold → small tier           │              │   │
-│  │  └─────────────────┬────────────────────────┘              │   │
-│  │                    │ tier + score                           │   │
-│  │                    ▼                                        │   │
-│  │  ┌──────────────────────────────────────────┐              │   │
-│  │  │          Tier-Aware Scorer                │              │   │
-│  │  │  1. Filter by matching tier               │ ◄── Redis   │   │
-│  │  │  2. Score: affinity + queue + KV pressure │ ◄── Poller  │   │
-│  │  │  3. Fallback to any tier if no match      │              │   │
-│  │  └─────────────────┬────────────────────────┘              │   │
-│  │                    │ best replica                           │   │
-│  │                    ▼                                        │   │
-│  │         Reverse Proxy (SSE streaming)                       │   │
-│  │         Stream Interceptor: TTFT + ITL + TPS               │   │
+│  │                    Proxy Handler                          │   │
+│  │  Parse OpenAI JSON ─► extract system prompt + user msg    │   │
+│  │  Hash system prompt (xxhash64) for cache affinity key     │   │
+│  │  Count conversation turns, detect code blocks             │   │
+│  │                         │                                 │   │
+│  │                         ▼                                 │   │
+│  │  ┌──────────────────────────────────────────┐             │   │
+│  │  │          6-Signal Classifier             │             │   │
+│  │  │  length · code · reasoning · complexity  │             │   │
+│  │  │  conv_depth · output_length (SJF)        │             │   │
+│  │  │  ────────────────────────────            │             │   │
+│  │  │  score ≥ threshold → large tier          │             │   │
+│  │  │  score < threshold → small tier          │             │   │
+│  │  └─────────────────┬────────────────────────┘             │   │
+│  │                    │ tier + score                         │   │
+│  │                    ▼                                      │   │
+│  │  ┌──────────────────────────────────────────┐             │   │
+│  │  │          Tier-Aware Scorer               │             │   │
+│  │  │  1. Filter by matching tier              │ ◄── Redis   │   │
+│  │  │  2. Score: affinity + queue + KV pressure│ ◄── Poller  │   │
+│  │  │  3. Fallback to any tier if no match     │             │   │
+│  │  └─────────────────┬────────────────────────┘             │   │
+│  │                    │ best replica                         │   │
+│  │                    ▼                                      │   │
+│  │         Reverse Proxy (SSE streaming)                     │   │
+│  │         Stream Interceptor: TTFT + ITL + TPS              │   │
 │  └───────────────────────────────────────────────────────────┘   │
-│                                                                    │
-│  Endpoints: /healthz  /readyz  /v1/models  /v1/router/status       │
-│             /metrics (Prometheus)                                   │
+│                                                                  │
+│  Endpoints: /healthz  /readyz  /v1/models  /v1/router/status     │
+│             /metrics (Prometheus)                                │
 └──────────────────────────────────────────────────────────────────┘
                               │
              ┌────────────────┼────────────────┐
              ▼                ▼                ▼
-        ┌─────────┐     ┌─────────┐      ┌─────────┐
-        │  vLLM   │     │  vLLM   │      │  vLLM   │
+        ┌──────────┐     ┌─────────┐      ┌─────────┐
+        │  vLLM    │     │  vLLM   │      │  vLLM   │
         │ Qwen-1.5B│     │ Qwen-7B │      │ Qwen-7B │
         │  small   │     │  large  │      │  large  │
-        └─────────┘     └─────────┘      └─────────┘
+        └──────────┘     └─────────┘      └─────────┘
 ```
 
 ## Key Design Decisions
@@ -77,8 +77,8 @@ Inspired by [research on Shortest-Job-First scheduling for LLM inference](https:
 
 Benchmarked on Intel Xeon Platinum 8581C:
 
-| Operation | Throughput | Latency | Allocs |
-|-----------|-----------|---------|--------|
+| Operation        | Throughput | Latency | Allocs |
+|------------------|-----------|-----------|--------|
 | Classify (simple) | 1.4M ops/s | 875 ns | 2 allocs |
 | Classify (complex) | 400K ops/s | 2.9 µs | 7 allocs |
 | Pick (4 replicas) | 1.8M ops/s | 662 ns | 2 allocs |
