@@ -11,11 +11,15 @@ import (
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"prompt-response/internal/audit"
+	"prompt-response/internal/auth"
+	"prompt-response/internal/circuit"
 	"prompt-response/internal/classifier"
 	"prompt-response/internal/config"
 	"prompt-response/internal/middleware"
 	"prompt-response/internal/poller"
 	"prompt-response/internal/proxy"
+	"prompt-response/internal/ratelimit"
 	"prompt-response/internal/scorer"
 	"prompt-response/internal/store"
 )
@@ -91,13 +95,55 @@ func main() {
 		Threshold: cfg.Threshold,
 	})
 
-	handler := proxy.New(scor, cls, cfg)
-
-	wrapped := middleware.RequestID(
-		middleware.RequestTimeout(30*time.Second,
-			middleware.MaxBodySize(1<<20, handler),
-		),
+	cb := circuit.NewRegistry(circuit.Config{
+		ErrorThreshold: cfg.Circuit.ErrorThreshold,
+		WindowSize:     cfg.Circuit.WindowSize,
+		Cooldown:       cfg.Circuit.Cooldown,
+		MinSamples:     cfg.Circuit.MinSamples,
+	})
+	slog.Info("circuit breaker initialized",
+		"error_threshold", cfg.Circuit.ErrorThreshold,
+		"window_size", cfg.Circuit.WindowSize.String(),
+		"cooldown", cfg.Circuit.Cooldown.String(),
+		"max_retries", cfg.Retry.MaxRetries,
 	)
+
+	var trail *audit.Trail
+	if cfg.Audit.Enabled {
+		trail = audit.NewTrail(cfg.Audit.BufferSize)
+		slog.Info("audit trail enabled", "buffer_size", cfg.Audit.BufferSize)
+	}
+
+	handler := proxy.New(scor, cls, cfg, cb, trail)
+
+	// Build middleware chain: inner → timeout → body limit → [ratelimit] → [auth] → request ID
+	var inner http.Handler = middleware.RequestTimeout(30*time.Second,
+		middleware.MaxBodySize(1<<20, handler),
+	)
+
+	if cfg.RateLimit.Enabled {
+		rl := ratelimit.NewRegistry(ratelimit.Config{
+			RequestsPerMinute: cfg.RateLimit.RequestsPerMinute,
+			Burst:             cfg.RateLimit.Burst,
+		})
+		inner = ratelimit.Middleware(rl)(inner)
+		slog.Info("rate limiting enabled",
+			"requests_per_minute", cfg.RateLimit.RequestsPerMinute,
+			"burst", cfg.RateLimit.Burst,
+		)
+	}
+
+	if cfg.Auth.Enabled {
+		entries := make([]auth.KeyEntry, len(cfg.Auth.Keys))
+		for i, k := range cfg.Auth.Keys {
+			entries[i] = auth.KeyEntry{Key: k.Key, Tenant: k.Tenant}
+		}
+		ks := auth.NewKeystore(entries)
+		inner = auth.Middleware(ks)(inner)
+		slog.Info("authentication enabled", "keys", ks.Len())
+	}
+
+	wrapped := middleware.RequestID(inner)
 
 	mux := http.NewServeMux()
 	mux.Handle("/metrics", promhttp.Handler())

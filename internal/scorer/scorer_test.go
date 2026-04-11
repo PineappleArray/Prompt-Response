@@ -38,12 +38,12 @@ func TestPick_TierMatchedPreferred(t *testing.T) {
 	_ = snap // poller starts all healthy
 
 	s := New(replicas, mem, poll, defaultWeights(), 5*time.Minute, 20)
-	got := s.Pick(123, types.TierSmall)
+	got := s.Pick(123, types.TierSmall, nil, nil)
 	if got.ID != "small-1" {
 		t.Errorf("expected small-1, got %s", got.ID)
 	}
 
-	got = s.Pick(123, types.TierLarge)
+	got = s.Pick(123, types.TierLarge, nil, nil)
 	if got.ID != "large-1" {
 		t.Errorf("expected large-1, got %s", got.ID)
 	}
@@ -57,7 +57,7 @@ func TestPick_FallbackWhenNoTierMatch(t *testing.T) {
 	poll := poller.New(replicas, 0)
 
 	s := New(replicas, mem, poll, defaultWeights(), 5*time.Minute, 20)
-	got := s.Pick(123, types.TierLarge) // no large tier exists
+	got := s.Pick(123, types.TierLarge, nil, nil) // no large tier exists
 	if got.ID != "small-1" {
 		t.Errorf("should fall back to small-1, got %s", got.ID)
 	}
@@ -77,7 +77,7 @@ func TestPick_UnhealthySkipped(t *testing.T) {
 
 	mem := store.NewMemory()
 	s := New(replicas, mem, poll, defaultWeights(), 5*time.Minute, 20)
-	got := s.Pick(123, types.TierSmall)
+	got := s.Pick(123, types.TierSmall, nil, nil)
 	if got.ID != "small-2" {
 		t.Errorf("expected small-2 (small-1 unhealthy), got %s", got.ID)
 	}
@@ -93,7 +93,7 @@ func TestPick_CacheAffinityWins(t *testing.T) {
 	poll := poller.New(replicas, 0)
 
 	s := New(replicas, mem, poll, defaultWeights(), 5*time.Minute, 20)
-	got := s.Pick(999, types.TierSmall)
+	got := s.Pick(999, types.TierSmall, nil, nil)
 	if got.ID != "small-2" {
 		t.Errorf("expected small-2 (cache affinity), got %s", got.ID)
 	}
@@ -122,7 +122,7 @@ func TestPick_HighKVCachePressurePenalized(t *testing.T) {
 		Baseline:        0.10,
 	}
 	s := New(replicas, mem, poll, heavyKVWeights, 5*time.Minute, 20)
-	got := s.Pick(999, types.TierSmall)
+	got := s.Pick(999, types.TierSmall, nil, nil)
 	if got.ID != "small-2" {
 		t.Errorf("expected small-2 (low KV pressure), got %s", got.ID)
 	}
@@ -139,7 +139,7 @@ func TestPick_AllUnhealthy(t *testing.T) {
 
 	mem := store.NewMemory()
 	s := New(replicas, mem, poll, defaultWeights(), 5*time.Minute, 20)
-	got := s.Pick(123, types.TierSmall)
+	got := s.Pick(123, types.TierSmall, nil, nil)
 	if got.ID != "" {
 		t.Errorf("expected empty replica, got %s", got.ID)
 	}
@@ -158,5 +158,61 @@ func TestRecordHit(t *testing.T) {
 	id, ok := mem.GetAffinity(42)
 	if !ok || id != "small-1" {
 		t.Errorf("expected affinity small-1, got %s (ok=%v)", id, ok)
+	}
+}
+
+// stubCircuit implements CircuitChecker for testing.
+type stubCircuit struct {
+	blocked map[string]bool
+}
+
+func (sc *stubCircuit) Allow(id string) bool {
+	return !sc.blocked[id]
+}
+
+func TestPick_CircuitOpenSkipped(t *testing.T) {
+	replicas := []config.Replica{
+		{ID: "small-1", URL: "http://s1", Tier: types.TierSmall},
+		{ID: "small-2", URL: "http://s2", Tier: types.TierSmall},
+	}
+	mem := store.NewMemory()
+	poll := poller.New(replicas, 0)
+	s := New(replicas, mem, poll, defaultWeights(), 5*time.Minute, 20)
+
+	cc := &stubCircuit{blocked: map[string]bool{"small-1": true}}
+	got := s.Pick(123, types.TierSmall, cc, nil)
+	if got.ID != "small-2" {
+		t.Errorf("expected small-2 (small-1 circuit open), got %s", got.ID)
+	}
+}
+
+func TestPick_ExcludedSkipped(t *testing.T) {
+	replicas := []config.Replica{
+		{ID: "small-1", URL: "http://s1", Tier: types.TierSmall},
+		{ID: "small-2", URL: "http://s2", Tier: types.TierSmall},
+	}
+	mem := store.NewMemory()
+	poll := poller.New(replicas, 0)
+	s := New(replicas, mem, poll, defaultWeights(), 5*time.Minute, 20)
+
+	excluded := map[string]bool{"small-1": true}
+	got := s.Pick(123, types.TierSmall, nil, excluded)
+	if got.ID != "small-2" {
+		t.Errorf("expected small-2 (small-1 excluded), got %s", got.ID)
+	}
+}
+
+func TestPick_AllExcluded(t *testing.T) {
+	replicas := []config.Replica{
+		{ID: "small-1", URL: "http://s1", Tier: types.TierSmall},
+	}
+	mem := store.NewMemory()
+	poll := poller.New(replicas, 0)
+	s := New(replicas, mem, poll, defaultWeights(), 5*time.Minute, 20)
+
+	excluded := map[string]bool{"small-1": true}
+	got := s.Pick(123, types.TierSmall, nil, excluded)
+	if got.ID != "" {
+		t.Errorf("expected empty replica when all excluded, got %s", got.ID)
 	}
 }

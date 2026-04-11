@@ -11,6 +11,12 @@ import (
 	"prompt-response/internal/types"
 )
 
+// CircuitChecker determines if a replica should receive traffic.
+// Returns true if the circuit is closed (healthy) or half-open (probing).
+type CircuitChecker interface {
+	Allow(replicaID string) bool
+}
+
 type Scorer struct {
 	replicas []config.Replica
 	store    store.Store
@@ -40,7 +46,8 @@ func New(
 
 // Pick selects the best replica for a request, preferring replicas that match
 // the requested tier. Falls back to any healthy replica if no tier match exists.
-func (s *Scorer) Pick(prefixHash uint64, tier types.ModelTier) config.Replica {
+// Replicas in the excluded set or with an open circuit breaker are skipped.
+func (s *Scorer) Pick(prefixHash uint64, tier types.ModelTier, cc CircuitChecker, excluded map[string]bool) config.Replica {
 	affinityID, hasAffinity := s.store.GetAffinity(prefixHash)
 	states := s.poller.Snapshot()
 
@@ -52,6 +59,12 @@ func (s *Scorer) Pick(prefixHash uint64, tier types.ModelTier) config.Replica {
 	for _, r := range s.replicas {
 		state, ok := states[r.ID]
 		if !ok || !state.Healthy {
+			continue
+		}
+		if excluded != nil && excluded[r.ID] {
+			continue
+		}
+		if cc != nil && !cc.Allow(r.ID) {
 			continue
 		}
 

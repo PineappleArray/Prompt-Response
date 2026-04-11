@@ -24,7 +24,7 @@ func BenchmarkPick(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		s.Pick(42, types.TierSmall)
+		s.Pick(42, types.TierSmall, nil, nil)
 	}
 }
 

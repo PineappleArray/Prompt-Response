@@ -79,4 +79,49 @@ var (
 		},
 		[]string{"tier", "replica"},
 	)
+
+	// Circuit breaker state per replica (0=closed, 1=half_open, 2=open).
+	CircuitState = promauto.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "router_circuit_state",
+			Help: "Circuit breaker state per replica (0=closed, 1=half_open, 2=open)",
+		},
+		[]string{"replica"},
+	)
+
+	// Retry attempts triggered by upstream failures.
+	RetriesTotal = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "router_retries_total",
+			Help: "Total retry attempts by replica that triggered the retry",
+		},
+		[]string{"replica"},
+	)
+
+	// Upstream errors (5xx or connection failures) per replica.
+	UpstreamErrorsTotal = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "router_upstream_errors_total",
+			Help: "Total upstream errors per replica",
+		},
+		[]string{"replica"},
+	)
+
+	// Authentication failures by reason (missing_key, invalid_key).
+	AuthFailuresTotal = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "router_auth_failures_total",
+			Help: "Total authentication failures by reason",
+		},
+		[]string{"reason"},
+	)
+
+	// Rate limit rejections by tenant.
+	RateLimitRejectsTotal = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "router_ratelimit_rejects_total",
+			Help: "Total requests rejected by rate limiter",
+		},
+		[]string{"tenant"},
+	)
 )

@@ -2,31 +2,61 @@ package proxy
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"io"
 	"log/slog"
 	"net/http"
-	"net/http/httputil"
-	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/cespare/xxhash/v2"
+	"prompt-response/internal/audit"
+	"prompt-response/internal/auth"
+	"prompt-response/internal/circuit"
 	"prompt-response/internal/classifier"
 	"prompt-response/internal/config"
 	"prompt-response/internal/metrics"
+	"prompt-response/internal/middleware"
 	"prompt-response/internal/scorer"
 	"prompt-response/internal/types"
 )
+
+// hopByHop headers that must not be forwarded between client and upstream.
+var hopByHop = map[string]bool{
+	"Connection":          true,
+	"Keep-Alive":          true,
+	"Proxy-Authenticate":  true,
+	"Proxy-Authorization": true,
+	"Te":                  true,
+	"Trailers":            true,
+	"Transfer-Encoding":   true,
+	"Upgrade":             true,
+}
 
 type Handler struct {
 	scorer     *scorer.Scorer
 	classifier *classifier.HeuristicClassifier
 	cfg        *config.Config
+	circuit    *circuit.Registry
+	audit      *audit.Trail
+	client     *http.Client
 }
 
-func New(s *scorer.Scorer, c *classifier.HeuristicClassifier, cfg *config.Config) *Handler {
-	return &Handler{scorer: s, classifier: c, cfg: cfg}
+func New(s *scorer.Scorer, c *classifier.HeuristicClassifier, cfg *config.Config, cr *circuit.Registry, trail *audit.Trail) *Handler {
+	return &Handler{
+		scorer:     s,
+		classifier: c,
+		cfg:        cfg,
+		circuit:    cr,
+		audit:      trail,
+		client: &http.Client{
+			CheckRedirect: func(*http.Request, []*http.Request) error {
+				return http.ErrUseLastResponse
+			},
+		},
+	}
 }
 
 type openAIRequest struct {
@@ -51,6 +81,9 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	case "/v1/router/status":
 		h.handleRouterStatus(w)
+		return
+	case "/v1/router/audit":
+		h.handleAudit(w, r)
 		return
 	}
 
@@ -100,46 +133,99 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	metrics.ClassifierScore.WithLabelValues(string(result.Tier)).Observe(result.Score)
 
-	replica := h.scorer.Pick(prefixHash, result.Tier)
-	if replica.ID == "" {
+	// Retry loop: attempt the request on the best replica, retrying on upstream
+	// failures (5xx, connection errors) with a different replica each time.
+	var resp *http.Response
+	var chosenReplica config.Replica
+	var cancelUpstream context.CancelFunc
+	excluded := make(map[string]bool)
+	maxAttempts := 1 + h.cfg.Retry.MaxRetries
+
+	for attempt := 0; attempt < maxAttempts; attempt++ {
+		replica := h.scorer.Pick(prefixHash, result.Tier, h.circuit, excluded)
+		if replica.ID == "" {
+			break
+		}
+
+		attemptCtx, cancel := context.WithTimeout(r.Context(), h.cfg.Retry.Timeout)
+		upstream, err := h.doUpstream(attemptCtx, replica, body, r)
+
+		if err == nil && upstream.StatusCode < 500 {
+			resp = upstream
+			chosenReplica = replica
+			cancelUpstream = cancel // deferred until body is fully consumed
+			if h.circuit != nil {
+				h.circuit.RecordSuccess(replica.ID)
+			}
+			break
+		}
+
+		cancel() // safe to cancel failed attempts immediately
+
+		// Record upstream failure
+		if h.circuit != nil {
+			h.circuit.RecordFailure(replica.ID)
+		}
+		metrics.UpstreamErrorsTotal.WithLabelValues(replica.ID).Inc()
+		excluded[replica.ID] = true
+
+		if upstream != nil {
+			upstream.Body.Close()
+		}
+
+		if attempt < maxAttempts-1 {
+			metrics.RetriesTotal.WithLabelValues(replica.ID).Inc()
+			slog.Warn("upstream failed, retrying",
+				"replica", replica.ID,
+				"attempt", attempt+1,
+				"err", err,
+			)
+		}
+	}
+
+	if resp == nil {
+		if h.audit != nil {
+			h.audit.Record(audit.Record{
+				Timestamp:  time.Now(),
+				RequestID:  middleware.GetRequestID(r.Context()),
+				Tenant:     tenantID(r),
+				Tier:       string(result.Tier),
+				ClassScore: result.Score,
+				Signals:    result.Signals,
+				Attempts:   len(excluded),
+				StatusCode: http.StatusServiceUnavailable,
+				Reason:     result.Reason,
+			})
+		}
 		writeError(w, r, http.StatusServiceUnavailable, "no_replicas", "no healthy replicas available")
 		return
 	}
+	defer cancelUpstream()
+	defer resp.Body.Close()
 
 	cacheHit := "miss"
-	if aff, ok := h.scorer.Store().GetAffinity(prefixHash); ok && aff == replica.ID {
+	if aff, ok := h.scorer.Store().GetAffinity(prefixHash); ok && aff == chosenReplica.ID {
 		cacheHit = "hit"
 	}
 
 	slog.Info("routing request",
-		"replica", replica.ID,
+		"replica", chosenReplica.ID,
 		"tier_requested", result.Tier,
-		"tier_matched", replica.Tier,
+		"tier_matched", chosenReplica.Tier,
 		"classifier_score", result.Score,
 		"prefix_hash", prefixHash,
 		"cache_hit", cacheHit,
 		"reason", result.Reason,
+		"attempts", len(excluded)+1,
 	)
 
-	target, err := url.Parse(replica.URL)
-	if err != nil {
-		writeError(w, r, http.StatusInternalServerError, "internal_error", "internal routing error")
-		return
-	}
+	// Copy response headers to client, then stream body through interceptor.
+	copyHeaders(w.Header(), resp.Header)
+	w.WriteHeader(resp.StatusCode)
 
-	proxy := httputil.NewSingleHostReverseProxy(target)
-	proxy.FlushInterval = -1 // flush SSE chunks immediately
-
-	r.Host = target.Host
-	r.URL.Host = target.Host
-	r.URL.Scheme = target.Scheme
-	r.Body = io.NopCloser(bytes.NewReader(body))
-
-	// Stream interceptor: measures TTFT, inter-token latency, output token
-	// count, and tokens-per-second by parsing SSE chunks in real-time.
 	start := time.Now()
 	sw := newStreamInterceptor(w)
-	proxy.ServeHTTP(sw, r)
+	streamBody(sw, resp.Body)
 	totalDuration := time.Since(start)
 
 	stats := sw.Stats()
@@ -148,33 +234,37 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		ttft = stats.FirstByteAt.Sub(start)
 	}
 
-	h.scorer.RecordHit(prefixHash, replica.ID)
+	h.scorer.RecordHit(prefixHash, chosenReplica.ID)
+
+	if h.circuit != nil {
+		metrics.CircuitState.WithLabelValues(chosenReplica.ID).Set(float64(h.circuit.State(chosenReplica.ID)))
+	}
 
 	tier := string(result.Tier)
-	metrics.RequestsTotal.WithLabelValues(tier, replica.ID, cacheHit).Inc()
-	metrics.RequestDuration.WithLabelValues(tier, replica.ID).Observe(totalDuration.Seconds())
-	metrics.TimeToFirstToken.WithLabelValues(tier, replica.ID).Observe(ttft.Seconds())
+	metrics.RequestsTotal.WithLabelValues(tier, chosenReplica.ID, cacheHit).Inc()
+	metrics.RequestDuration.WithLabelValues(tier, chosenReplica.ID).Observe(totalDuration.Seconds())
+	metrics.TimeToFirstToken.WithLabelValues(tier, chosenReplica.ID).Observe(ttft.Seconds())
 
 	// Stream-level metrics: output tokens, throughput, and inter-token latency.
 	var tps float64
 	var avgITLMs int64
 	if stats.OutputTokens > 0 {
-		metrics.OutputTokens.WithLabelValues(tier, replica.ID).Observe(float64(stats.OutputTokens))
+		metrics.OutputTokens.WithLabelValues(tier, chosenReplica.ID).Observe(float64(stats.OutputTokens))
 
 		if streamDur := stats.LastTokenAt.Sub(stats.FirstByteAt).Seconds(); streamDur > 0 {
 			tps = float64(stats.OutputTokens) / streamDur
-			metrics.TokensPerSecond.WithLabelValues(tier, replica.ID).Observe(tps)
+			metrics.TokensPerSecond.WithLabelValues(tier, chosenReplica.ID).Observe(tps)
 		}
 
 		if stats.ChunkCount > 1 {
 			avgITL := stats.InterTokenSum / time.Duration(stats.ChunkCount-1)
 			avgITLMs = avgITL.Milliseconds()
-			metrics.InterTokenLatency.WithLabelValues(tier, replica.ID).Observe(avgITL.Seconds())
+			metrics.InterTokenLatency.WithLabelValues(tier, chosenReplica.ID).Observe(avgITL.Seconds())
 		}
 	}
 
 	slog.Info("completed",
-		"replica", replica.ID,
+		"replica", chosenReplica.ID,
 		"ttft_ms", ttft.Milliseconds(),
 		"total_ms", totalDuration.Milliseconds(),
 		"output_tokens", stats.OutputTokens,
@@ -182,6 +272,70 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		"avg_itl_ms", avgITLMs,
 		"cache_hit", cacheHit,
 	)
+
+	if h.audit != nil {
+		h.audit.Record(audit.Record{
+			Timestamp:    time.Now(),
+			RequestID:    middleware.GetRequestID(r.Context()),
+			Tenant:       tenantID(r),
+			Tier:         string(result.Tier),
+			ClassScore:   result.Score,
+			Signals:      result.Signals,
+			ReplicaID:    chosenReplica.ID,
+			ReplicaTier:  string(chosenReplica.Tier),
+			CacheHit:     cacheHit == "hit",
+			Attempts:     len(excluded) + 1,
+			TTFTMs:       ttft.Milliseconds(),
+			TotalMs:      totalDuration.Milliseconds(),
+			OutputTokens: stats.OutputTokens,
+			StatusCode:   resp.StatusCode,
+			Reason:       result.Reason,
+		})
+	}
+}
+
+// doUpstream sends the request body to the given replica and returns the
+// raw response. The caller is responsible for closing resp.Body.
+func (h *Handler) doUpstream(ctx context.Context, replica config.Replica, body []byte, orig *http.Request) (*http.Response, error) {
+	upstreamURL := replica.URL + orig.URL.Path
+	req, err := http.NewRequestWithContext(ctx, orig.Method, upstreamURL, bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	copyHeaders(req.Header, orig.Header)
+	req.Host = ""
+	return h.client.Do(req)
+}
+
+// streamBody copies the upstream response body to the stream interceptor,
+// flushing after each read to ensure SSE chunks are sent to the client
+// immediately (equivalent to httputil.ReverseProxy FlushInterval=-1).
+func streamBody(sw *streamInterceptor, body io.Reader) {
+	buf := make([]byte, 32*1024)
+	for {
+		n, err := body.Read(buf)
+		if n > 0 {
+			if _, wErr := sw.Write(buf[:n]); wErr != nil {
+				break
+			}
+			sw.Flush()
+		}
+		if err != nil {
+			break
+		}
+	}
+}
+
+// copyHeaders copies non-hop-by-hop headers from src to dst.
+func copyHeaders(dst, src http.Header) {
+	for k, vs := range src {
+		if hopByHop[http.CanonicalHeaderKey(k)] {
+			continue
+		}
+		for _, v := range vs {
+			dst.Add(k, v)
+		}
+	}
 }
 
 func (h *Handler) handleReadiness(w http.ResponseWriter) {
@@ -254,6 +408,8 @@ func (h *Handler) handleRouterStatus(w http.ResponseWriter) {
 		QueueDepth  int     `json:"queue_depth"`
 		KVCacheUtil float64 `json:"kv_cache_util"`
 		Running     int     `json:"running"`
+		Circuit     string  `json:"circuit"`
+		ErrorRate   float64 `json:"error_rate"`
 	}
 
 	var replicas []replicaStatus
@@ -263,6 +419,12 @@ func (h *Handler) handleRouterStatus(w http.ResponseWriter) {
 		if state.Healthy {
 			healthyCount++
 		}
+		circuitState := "closed"
+		errorRate := 0.0
+		if h.circuit != nil {
+			circuitState = h.circuit.State(r.ID).String()
+			errorRate = h.circuit.ErrorRate(r.ID)
+		}
 		replicas = append(replicas, replicaStatus{
 			ID:          r.ID,
 			Model:       r.Model,
@@ -271,6 +433,8 @@ func (h *Handler) handleRouterStatus(w http.ResponseWriter) {
 			QueueDepth:  state.QueueDepth,
 			KVCacheUtil: state.KVCacheUtil,
 			Running:     state.Running,
+			Circuit:     circuitState,
+			ErrorRate:   errorRate,
 		})
 	}
 
@@ -290,8 +454,57 @@ func (h *Handler) handleRouterStatus(w http.ResponseWriter) {
 				"kv_cache_pressure": h.cfg.Weights.KVCachePressure,
 				"baseline":          h.cfg.Weights.Baseline,
 			},
+			"circuit": map[string]any{
+				"error_threshold": h.cfg.Circuit.ErrorThreshold,
+				"window_size":     h.cfg.Circuit.WindowSize.String(),
+				"cooldown":        h.cfg.Circuit.Cooldown.String(),
+				"min_samples":     h.cfg.Circuit.MinSamples,
+			},
+			"retry": map[string]any{
+				"max_retries": h.cfg.Retry.MaxRetries,
+				"timeout":     h.cfg.Retry.Timeout.String(),
+			},
 		},
 	})
+}
+
+// handleAudit returns recent routing decisions from the audit trail.
+func (h *Handler) handleAudit(w http.ResponseWriter, r *http.Request) {
+	if h.audit == nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(map[string]any{
+			"records": []any{},
+			"count":   0,
+			"enabled": false,
+		})
+		return
+	}
+
+	n := 50
+	if qs := r.URL.Query().Get("limit"); qs != "" {
+		if parsed, err := strconv.Atoi(qs); err == nil && parsed > 0 {
+			n = parsed
+		}
+	}
+	if n > 200 {
+		n = 200
+	}
+
+	records := h.audit.Recent(n)
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{
+		"records": records,
+		"count":   len(records),
+		"enabled": true,
+	})
+}
+
+func tenantID(r *http.Request) string {
+	if t, ok := auth.TenantFromContext(r.Context()); ok {
+		return t.ID
+	}
+	return ""
 }
 
 func extractMessages(req openAIRequest) (system, user string) {
