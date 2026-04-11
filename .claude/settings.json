@@ -1,0 +1,68 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "case \"$CLAUDE_TOOL_INPUT\" in *'--force'*|*'--hard'*|*'-rf '*|*'rm -rf'*|*'DROP TABLE'*|*'drop table'*|*'--no-verify'*|*'push -f'*|*'push --force'*) echo 'CAUTION: Destructive command detected. Confirm intent before proceeding.' ;; esac",
+            "statusMessage": "Checking for destructive commands..."
+          }
+        ]
+      },
+      {
+        "matcher": "mcp__github__add_issue_comment",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo 'BLOCKED: Do not comment on issues. Let the code speak for itself.'",
+            "statusMessage": "Checking GitHub interaction policy..."
+          }
+        ]
+      },
+      {
+        "matcher": "mcp__github__add_comment_to_pending_review",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo 'BLOCKED: Do not post review comments. Commit fixes directly.'",
+            "statusMessage": "Checking GitHub interaction policy..."
+          }
+        ]
+      },
+      {
+        "matcher": "mcp__github__add_reply_to_pull_request_comment",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo 'BLOCKED: Do not reply on pull requests. Address feedback in code.'",
+            "statusMessage": "Checking GitHub interaction policy..."
+          }
+        ]
+      },
+      {
+        "matcher": "mcp__github__pull_request_review_write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo 'BLOCKED: Do not submit PR reviews. Use /review locally instead.'",
+            "statusMessage": "Checking GitHub interaction policy..."
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "case \"$CLAUDE_TOOL_INPUT\" in *'git commit'*) COMMIT_MSG=$(git log -1 --pretty=%B 2>/dev/null); if echo \"$COMMIT_MSG\" | grep -q 'claude.ai/code/session'; then CLEANED=$(echo \"$COMMIT_MSG\" | sed '/https:\\/\\/claude\\.ai\\/code\\/session/d' | sed -e :a -e '/^\\n*$/{$d;N;ba}'); git commit --amend -m \"$CLEANED\" 2>/dev/null; echo 'Stripped session link from commit message.'; fi ;; esac",
+            "statusMessage": "Cleaning commit metadata..."
+          }
+        ]
+      }
+    ]
+  }
+}
