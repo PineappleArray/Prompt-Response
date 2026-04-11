@@ -98,6 +98,83 @@ redis:
 	}
 }
 
+func TestLoad_RateLimitAndAuditDefaults(t *testing.T) {
+	content := `
+replicas:
+  - id: r1
+    url: http://localhost:8001
+    model: test
+    tier: small
+redis:
+  addr: localhost:6379
+`
+	path := writeTemp(t, content)
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.RateLimit.RequestsPerMinute != 60 {
+		t.Errorf("expected default requests_per_minute 60, got %f", cfg.RateLimit.RequestsPerMinute)
+	}
+	if cfg.RateLimit.Burst != 10 {
+		t.Errorf("expected default burst 10, got %d", cfg.RateLimit.Burst)
+	}
+	if cfg.Audit.BufferSize != 1000 {
+		t.Errorf("expected default buffer_size 1000, got %d", cfg.Audit.BufferSize)
+	}
+}
+
+func TestLoad_AuthEnabledNoKeys(t *testing.T) {
+	content := `
+replicas:
+  - id: r1
+    url: http://localhost:8001
+    model: test
+    tier: small
+redis:
+  addr: localhost:6379
+auth:
+  enabled: true
+  keys: []
+`
+	path := writeTemp(t, content)
+	_, err := Load(path)
+	if err == nil {
+		t.Error("expected error for auth enabled with no keys")
+	}
+}
+
+func TestLoad_AuthWithKeys(t *testing.T) {
+	content := `
+replicas:
+  - id: r1
+    url: http://localhost:8001
+    model: test
+    tier: small
+redis:
+  addr: localhost:6379
+auth:
+  enabled: true
+  keys:
+    - key: "sk-test"
+      tenant: "acme"
+`
+	path := writeTemp(t, content)
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !cfg.Auth.Enabled {
+		t.Error("expected auth enabled")
+	}
+	if len(cfg.Auth.Keys) != 1 {
+		t.Errorf("expected 1 auth key, got %d", len(cfg.Auth.Keys))
+	}
+	if cfg.Auth.Keys[0].Tenant != "acme" {
+		t.Errorf("expected tenant acme, got %s", cfg.Auth.Keys[0].Tenant)
+	}
+}
+
 func TestLoad_NoReplicas(t *testing.T) {
 	content := `
 replicas: []

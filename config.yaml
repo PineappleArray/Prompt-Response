@@ -54,6 +54,29 @@ retry:
   max_retries: 1
   timeout: 30s
 
+# Authentication: API key validation for all non-health endpoints.
+# When enabled, requests must include Authorization: Bearer <key> or X-API-Key header.
+# Health endpoints (/healthz, /readyz) bypass authentication.
+auth:
+  enabled: false
+  keys: []
+  # - key: "sk-your-api-key"
+  #   tenant: "your-tenant-id"
+
+# Rate limiting: per-tenant token bucket to prevent any single client
+# from monopolizing replicas. Uses tenant ID (from auth) or client IP.
+# requests_per_minute: sustained rate, burst: max tokens for bursts.
+ratelimit:
+  enabled: false
+  requests_per_minute: 60
+  burst: 10
+
+# Audit trail: ring buffer of recent routing decisions for debugging.
+# Query via GET /v1/router/audit?limit=50.
+audit:
+  enabled: true
+  buffer_size: 1000
+
 prefix_len: 512
 affinity_ttl: 5m
 threshold: 0.35

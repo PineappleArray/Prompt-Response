@@ -7,14 +7,18 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/cespare/xxhash/v2"
+	"prompt-response/internal/audit"
+	"prompt-response/internal/auth"
 	"prompt-response/internal/circuit"
 	"prompt-response/internal/classifier"
 	"prompt-response/internal/config"
 	"prompt-response/internal/metrics"
+	"prompt-response/internal/middleware"
 	"prompt-response/internal/scorer"
 	"prompt-response/internal/types"
 )
@@ -36,15 +40,17 @@ type Handler struct {
 	classifier *classifier.HeuristicClassifier
 	cfg        *config.Config
 	circuit    *circuit.Registry
+	audit      *audit.Trail
 	client     *http.Client
 }
 
-func New(s *scorer.Scorer, c *classifier.HeuristicClassifier, cfg *config.Config, cr *circuit.Registry) *Handler {
+func New(s *scorer.Scorer, c *classifier.HeuristicClassifier, cfg *config.Config, cr *circuit.Registry, trail *audit.Trail) *Handler {
 	return &Handler{
 		scorer:     s,
 		classifier: c,
 		cfg:        cfg,
 		circuit:    cr,
+		audit:      trail,
 		client: &http.Client{
 			CheckRedirect: func(*http.Request, []*http.Request) error {
 				return http.ErrUseLastResponse
@@ -75,6 +81,9 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	case "/v1/router/status":
 		h.handleRouterStatus(w)
+		return
+	case "/v1/router/audit":
+		h.handleAudit(w, r)
 		return
 	}
 
@@ -175,6 +184,19 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if resp == nil {
+		if h.audit != nil {
+			h.audit.Record(audit.Record{
+				Timestamp:  time.Now(),
+				RequestID:  middleware.GetRequestID(r.Context()),
+				Tenant:     tenantID(r),
+				Tier:       string(result.Tier),
+				ClassScore: result.Score,
+				Signals:    result.Signals,
+				Attempts:   len(excluded),
+				StatusCode: http.StatusServiceUnavailable,
+				Reason:     result.Reason,
+			})
+		}
 		writeError(w, r, http.StatusServiceUnavailable, "no_replicas", "no healthy replicas available")
 		return
 	}
@@ -250,6 +272,26 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		"avg_itl_ms", avgITLMs,
 		"cache_hit", cacheHit,
 	)
+
+	if h.audit != nil {
+		h.audit.Record(audit.Record{
+			Timestamp:    time.Now(),
+			RequestID:    middleware.GetRequestID(r.Context()),
+			Tenant:       tenantID(r),
+			Tier:         string(result.Tier),
+			ClassScore:   result.Score,
+			Signals:      result.Signals,
+			ReplicaID:    chosenReplica.ID,
+			ReplicaTier:  string(chosenReplica.Tier),
+			CacheHit:     cacheHit == "hit",
+			Attempts:     len(excluded) + 1,
+			TTFTMs:       ttft.Milliseconds(),
+			TotalMs:      totalDuration.Milliseconds(),
+			OutputTokens: stats.OutputTokens,
+			StatusCode:   resp.StatusCode,
+			Reason:       result.Reason,
+		})
+	}
 }
 
 // doUpstream sends the request body to the given replica and returns the
@@ -424,6 +466,45 @@ func (h *Handler) handleRouterStatus(w http.ResponseWriter) {
 			},
 		},
 	})
+}
+
+// handleAudit returns recent routing decisions from the audit trail.
+func (h *Handler) handleAudit(w http.ResponseWriter, r *http.Request) {
+	if h.audit == nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(map[string]any{
+			"records": []any{},
+			"count":   0,
+			"enabled": false,
+		})
+		return
+	}
+
+	n := 50
+	if qs := r.URL.Query().Get("limit"); qs != "" {
+		if parsed, err := strconv.Atoi(qs); err == nil && parsed > 0 {
+			n = parsed
+		}
+	}
+	if n > 200 {
+		n = 200
+	}
+
+	records := h.audit.Recent(n)
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{
+		"records": records,
+		"count":   len(records),
+		"enabled": true,
+	})
+}
+
+func tenantID(r *http.Request) string {
+	if t, ok := auth.TenantFromContext(r.Context()); ok {
+		return t.ID
+	}
+	return ""
 }
 
 func extractMessages(req openAIRequest) (system, user string) {

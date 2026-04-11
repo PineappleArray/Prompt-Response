@@ -106,4 +106,22 @@ var (
 		},
 		[]string{"replica"},
 	)
+
+	// Authentication failures by reason (missing_key, invalid_key).
+	AuthFailuresTotal = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "router_auth_failures_total",
+			Help: "Total authentication failures by reason",
+		},
+		[]string{"reason"},
+	)
+
+	// Rate limit rejections by tenant.
+	RateLimitRejectsTotal = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "router_ratelimit_rejects_total",
+			Help: "Total requests rejected by rate limiter",
+		},
+		[]string{"tenant"},
+	)
 )
