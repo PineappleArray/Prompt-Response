@@ -1,5 +1,7 @@
 package classifier
 
+import "prompt-response/internal/types"
+
 type Classifier interface {
 	Classify(req Request) (Response, error)
 }
@@ -13,16 +15,8 @@ type Request struct {
 }
 
 type Response struct {
-	Tier    ModelTier          // routing decision
+	Tier    types.ModelTier    // routing decision
 	Score   float64            // raw composite score 0–1
 	Signals map[string]float64 // per-signal breakdown
 	Reason  string             // human-readable explanation
 }
-
-type ModelTier string
-
-const (
-	TierSmall  ModelTier = "small"
-	TierMedium ModelTier = "medium"
-	TierLarge  ModelTier = "large"
-)

@@ -4,18 +4,9 @@ import (
 	"context"
 	"log"
 	"net/http"
-	"prompt-response/internal/classifier"
 	"prompt-response/internal/config"
 	"time"
 )
-
-/*type Request struct {
-	SystemPrompt string // extracted from messages[role=system]
-	UserMessage  string // latest messages[role=user]
-	TokenCount   int    // pre-counted by proxy handler
-	HasCode      bool   // true if ``` or code keywords found
-	ConvTurns    int    // number of prior messages in thread
-}*/
 
 func (p *Poller) checkHealth(r config.Replica) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
@@ -53,24 +44,5 @@ func (p *Poller) recordFailure(replicaID string) {
 		s.Healthy = false
 		p.states[replicaID] = s
 		log.Printf("replica marked unhealthy: id=%s", replicaID)
-	}
-}
-
-func (p *Poller) SendRequest(req classifier.Request) bool {
-	timer := time.NewTimer(5 * time.Second)
-	defer timer.Stop()
-
-	select {
-	case <-timer.C:
-		log.Printf("request timed out: %v", req)
-		return false
-	default:
-		return true
-	}
-}
-
-func (p *Poller) BackgroundRun(replica config.Replica) {
-	for _, r := range p.replicas {
-		go p.checkHealth(r)
 	}
 }

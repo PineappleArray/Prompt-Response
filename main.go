@@ -1,11 +1,18 @@
 package main
 
 import (
-	"log"
+	"context"
+	"log/slog"
 	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"prompt-response/internal/classifier"
 	"prompt-response/internal/config"
+	"prompt-response/internal/middleware"
 	"prompt-response/internal/poller"
 	"prompt-response/internal/proxy"
 	"prompt-response/internal/scorer"
@@ -13,43 +20,82 @@ import (
 )
 
 func main() {
-	cfg, err := config.Load("config.yaml")
-	if err != nil {
-		log.Fatalf("failed to load config: %v", err)
+	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
+		Level: slog.LevelInfo,
+	})))
+
+	cfgPath := "config.yaml"
+	if p := os.Getenv("CONFIG_PATH"); p != "" {
+		cfgPath = p
 	}
 
-	// store
+	cfg, err := config.Load(cfgPath)
+	if err != nil {
+		slog.Error("failed to load config", "err", err)
+		os.Exit(1)
+	}
+
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
 	rdb := store.NewRedis(cfg.Redis.Addr)
 
-	// poller
 	poll := poller.New(cfg.Replicas)
-	poll.Start()
+	poll.Start(ctx)
 
-	// scorer
 	scor := scorer.New(
 		cfg.Replicas,
 		rdb,
 		poll,
 		cfg.Weights,
 		cfg.AffinityTTL,
+		cfg.MaxQueue,
 	)
 
-	// classifier
 	cls := classifier.NewHeuristic(classifier.HeuristicConfig{
 		Weights: classifier.SignalWeights{
-			Length:     0.25,
-			Code:       0.35,
-			Reasoning:  0.25,
-			Complexity: 0.15,
+			Length:       0.20,
+			Code:         0.30,
+			Reasoning:    0.15,
+			Complexity:   0.10,
+			ConvDepth:    0.10,
+			OutputLength: 0.15,
 		},
 		Threshold: cfg.Threshold,
 	})
 
-	// proxy handler
 	handler := proxy.New(scor, cls, cfg)
 
-	log.Println("router listening on :8080")
-	if err := http.ListenAndServe(":8080", handler); err != nil {
-		log.Fatalf("server error: %v", err)
+	// middleware chain: request ID → timeout → body size limit → handler
+	wrapped := middleware.RequestID(
+		middleware.RequestTimeout(30*time.Second,
+			middleware.MaxBodySize(1<<20, handler),
+		),
+	)
+
+	mux := http.NewServeMux()
+	mux.Handle("/metrics", promhttp.Handler())
+	mux.Handle("/", wrapped)
+
+	srv := &http.Server{
+		Addr:    cfg.ListenAddr,
+		Handler: mux,
+	}
+
+	go func() {
+		slog.Info("router listening", "addr", cfg.ListenAddr)
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			slog.Error("server error", "err", err)
+			os.Exit(1)
+		}
+	}()
+
+	<-ctx.Done()
+	slog.Info("shutting down gracefully")
+
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := srv.Shutdown(shutdownCtx); err != nil {
+		slog.Error("shutdown error", "err", err)
 	}
 }

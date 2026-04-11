@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"io"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	"prompt-response/internal/config"
+	"prompt-response/internal/metrics"
 )
 
 type State struct {
@@ -41,41 +43,56 @@ func New(replicas []config.Replica) *Poller {
 	}
 }
 
-func (p *Poller) Start() {
+func (p *Poller) Start(ctx context.Context) {
 	for _, r := range p.replicas {
-		go p.pollLoop(r)
+		go p.pollLoop(ctx, r)
 	}
 }
 
 func (p *Poller) Snapshot() map[string]State {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
-	copy := make(map[string]State, len(p.states))
+	cp := make(map[string]State, len(p.states))
 	for k, v := range p.states {
-		copy[k] = v
+		cp[k] = v
 	}
-	return copy
+	return cp
 }
 
-func (p *Poller) pollLoop(r config.Replica) {
-	failures := 0
+func (p *Poller) pollLoop(ctx context.Context, r config.Replica) {
+	ticker := time.NewTicker(p.interval)
+	defer ticker.Stop()
+
 	for {
-		state, err := p.scrape(r)
-		p.mu.Lock()
-		if err != nil {
-			failures++
-			if failures >= 3 {
-				s := p.states[r.ID]
-				s.Healthy = false
-				p.states[r.ID] = s
+		select {
+		case <-ctx.Done():
+			slog.Info("poller stopping", "replica", r.ID)
+			return
+		case <-ticker.C:
+			state, err := p.scrape(r)
+			p.mu.Lock()
+			if err != nil {
+				p.failures[r.ID]++
+				if p.failures[r.ID] >= 3 {
+					s := p.states[r.ID]
+					if s.Healthy {
+						slog.Warn("replica marked unhealthy by poller", "replica", r.ID, "consecutive_failures", p.failures[r.ID])
+					}
+					s.Healthy = false
+					p.states[r.ID] = s
+				}
+			} else {
+				if p.failures[r.ID] >= 3 {
+					slog.Info("replica recovered", "replica", r.ID)
+				}
+				p.failures[r.ID] = 0
+				state.Healthy = true
+				p.states[r.ID] = state
+
+				metrics.ReplicaKVCacheUtil.WithLabelValues(r.ID).Set(state.KVCacheUtil)
 			}
-		} else {
-			failures = 0
-			state.Healthy = true
-			p.states[r.ID] = state
+			p.mu.Unlock()
 		}
-		p.mu.Unlock()
-		time.Sleep(p.interval)
 	}
 }
 
@@ -116,6 +133,25 @@ func parseMetrics(r io.Reader) State {
 		}
 	}
 	return s
+}
+
+// SimulateFailure increments the failure counter for a replica (for testing).
+func (p *Poller) SimulateFailure(replicaID string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.failures[replicaID]++
+	if p.failures[replicaID] >= 3 {
+		s := p.states[replicaID]
+		s.Healthy = false
+		p.states[replicaID] = s
+	}
+}
+
+// SetState directly sets the state of a replica (for testing).
+func (p *Poller) SetState(replicaID string, state State) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.states[replicaID] = state
 }
 
 func parseFloat(line string) float64 {
