@@ -6,9 +6,11 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
+	"prompt-response/internal/circuit"
 	"prompt-response/internal/classifier"
 	"prompt-response/internal/config"
 	"prompt-response/internal/poller"
@@ -31,6 +33,16 @@ func newTestHandler(replicas []config.Replica) *Handler {
 		AffinityTTL: 5 * time.Minute,
 		MaxQueue:    20,
 		Threshold:   0.35,
+		Circuit: config.Circuit{
+			ErrorThreshold: 0.5,
+			WindowSize:     10 * time.Second,
+			Cooldown:       30 * time.Second,
+			MinSamples:     5,
+		},
+		Retry: config.Retry{
+			MaxRetries: 1,
+			Timeout:    30 * time.Second,
+		},
 	}
 	scor := scorer.New(replicas, mem, poll, cfg.Weights, cfg.AffinityTTL, cfg.MaxQueue)
 	cls := classifier.NewHeuristic(classifier.HeuristicConfig{
@@ -40,7 +52,13 @@ func newTestHandler(replicas []config.Replica) *Handler {
 		},
 		Threshold: cfg.Threshold,
 	})
-	return New(scor, cls, cfg)
+	cr := circuit.NewRegistry(circuit.Config{
+		ErrorThreshold: cfg.Circuit.ErrorThreshold,
+		WindowSize:     cfg.Circuit.WindowSize,
+		Cooldown:       cfg.Circuit.Cooldown,
+		MinSamples:     cfg.Circuit.MinSamples,
+	})
+	return New(scor, cls, cfg, cr)
 }
 
 func TestHealthz(t *testing.T) {
@@ -245,6 +263,162 @@ func TestValidRequestRoutes(t *testing.T) {
 	}
 	if !strings.Contains(body, "[DONE]") {
 		t.Errorf("expected [DONE] sentinel in response, got %s", body)
+	}
+}
+
+func TestRetry_SuccessOnSecondAttempt(t *testing.T) {
+	// Backend 1: always returns 503
+	backend1 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	defer backend1.Close()
+
+	// Backend 2: returns success with SSE stream
+	backend2 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprintf(w, "data: {\"choices\":[{\"delta\":{\"content\":\"retried\"}}]}\n\n")
+		fmt.Fprint(w, "data: [DONE]\n\n")
+	}))
+	defer backend2.Close()
+
+	replicas := []config.Replica{
+		{ID: "r1", URL: backend1.URL, Model: "test", Tier: types.TierSmall},
+		{ID: "r2", URL: backend2.URL, Model: "test", Tier: types.TierSmall},
+	}
+	h := newTestHandler(replicas)
+
+	payload := `{"messages":[{"role":"user","content":"hello"}]}`
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(payload))
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected 200 after retry, got %d", w.Code)
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, "retried") {
+		t.Errorf("expected response from second backend, got %s", body)
+	}
+}
+
+func TestRetry_NoRetryOn4xx(t *testing.T) {
+	var attempts atomic.Int32
+
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempts.Add(1)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		w.Write([]byte(`{"error":"bad request"}`))
+	}))
+	defer backend.Close()
+
+	replicas := []config.Replica{
+		{ID: "r1", URL: backend.URL, Model: "test", Tier: types.TierSmall},
+		{ID: "r2", URL: backend.URL, Model: "test", Tier: types.TierSmall},
+	}
+	h := newTestHandler(replicas)
+
+	payload := `{"messages":[{"role":"user","content":"hello"}]}`
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(payload))
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 passed through, got %d", w.Code)
+	}
+	if got := attempts.Load(); got != 1 {
+		t.Errorf("expected 1 attempt (no retry on 4xx), got %d", got)
+	}
+}
+
+func TestRetry_AllReplicasExhausted(t *testing.T) {
+	// All backends return 503
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	defer backend.Close()
+
+	replicas := []config.Replica{
+		{ID: "r1", URL: backend.URL, Model: "test", Tier: types.TierSmall},
+		{ID: "r2", URL: backend.URL, Model: "test", Tier: types.TierSmall},
+	}
+	h := newTestHandler(replicas)
+
+	payload := `{"messages":[{"role":"user","content":"hello"}]}`
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(payload))
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	if w.Code != http.StatusServiceUnavailable {
+		t.Errorf("expected 503 when all replicas exhausted, got %d", w.Code)
+	}
+}
+
+func TestRetry_ConnectionRefused(t *testing.T) {
+	// Backend 1: unreachable (closed immediately)
+	backend1 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	backend1.Close() // close to simulate connection refused
+
+	// Backend 2: healthy
+	backend2 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprintf(w, "data: {\"choices\":[{\"delta\":{\"content\":\"ok\"}}]}\n\n")
+		fmt.Fprint(w, "data: [DONE]\n\n")
+	}))
+	defer backend2.Close()
+
+	replicas := []config.Replica{
+		{ID: "r1", URL: backend1.URL, Model: "test", Tier: types.TierSmall},
+		{ID: "r2", URL: backend2.URL, Model: "test", Tier: types.TierSmall},
+	}
+	h := newTestHandler(replicas)
+
+	payload := `{"messages":[{"role":"user","content":"hello"}]}`
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(payload))
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected 200 after retry on connection refused, got %d", w.Code)
+	}
+	if !strings.Contains(w.Body.String(), "ok") {
+		t.Errorf("expected response from second backend")
+	}
+}
+
+func TestRouterStatus_IncludesCircuit(t *testing.T) {
+	replicas := []config.Replica{
+		{ID: "r1", URL: "http://l1", Model: "test", Tier: types.TierSmall},
+	}
+	h := newTestHandler(replicas)
+	req := httptest.NewRequest(http.MethodGet, "/v1/router/status", nil)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d", w.Code)
+	}
+
+	var body map[string]any
+	json.Unmarshal(w.Body.Bytes(), &body)
+
+	// Check that replica status includes circuit info
+	replicaList := body["replicas"].([]any)
+	if len(replicaList) == 0 {
+		t.Fatal("expected at least one replica in status")
+	}
+	r1 := replicaList[0].(map[string]any)
+	if r1["circuit"] != "closed" {
+		t.Errorf("expected circuit=closed for new replica, got %v", r1["circuit"])
+	}
+
+	// Check that config includes circuit and retry settings
+	cfgMap := body["config"].(map[string]any)
+	if _, ok := cfgMap["circuit"]; !ok {
+		t.Error("expected circuit config in status response")
+	}
+	if _, ok := cfgMap["retry"]; !ok {
+		t.Error("expected retry config in status response")
 	}
 }
 

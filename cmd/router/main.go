@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"prompt-response/internal/circuit"
 	"prompt-response/internal/classifier"
 	"prompt-response/internal/config"
 	"prompt-response/internal/middleware"
@@ -91,7 +92,20 @@ func main() {
 		Threshold: cfg.Threshold,
 	})
 
-	handler := proxy.New(scor, cls, cfg)
+	cb := circuit.NewRegistry(circuit.Config{
+		ErrorThreshold: cfg.Circuit.ErrorThreshold,
+		WindowSize:     cfg.Circuit.WindowSize,
+		Cooldown:       cfg.Circuit.Cooldown,
+		MinSamples:     cfg.Circuit.MinSamples,
+	})
+	slog.Info("circuit breaker initialized",
+		"error_threshold", cfg.Circuit.ErrorThreshold,
+		"window_size", cfg.Circuit.WindowSize.String(),
+		"cooldown", cfg.Circuit.Cooldown.String(),
+		"max_retries", cfg.Retry.MaxRetries,
+	)
+
+	handler := proxy.New(scor, cls, cfg, cb)
 
 	wrapped := middleware.RequestID(
 		middleware.RequestTimeout(30*time.Second,

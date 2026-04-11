@@ -16,11 +16,25 @@ type Config struct {
 	Redis        Redis             `yaml:"redis"`
 	Weights      Weights           `yaml:"weights"`
 	Classifier   ClassifierWeights `yaml:"classifier"`
+	Circuit      Circuit           `yaml:"circuit"`
+	Retry        Retry             `yaml:"retry"`
 	PrefixLen    int               `yaml:"prefix_len"`
 	AffinityTTL  time.Duration     `yaml:"affinity_ttl"`
 	Threshold    float64           `yaml:"threshold"`
 	MaxQueue     float64           `yaml:"max_queue"`
 	PollInterval time.Duration     `yaml:"poll_interval"`
+}
+
+type Circuit struct {
+	ErrorThreshold float64       `yaml:"error_threshold"`
+	WindowSize     time.Duration `yaml:"window_size"`
+	Cooldown       time.Duration `yaml:"cooldown"`
+	MinSamples     int           `yaml:"min_samples"`
+}
+
+type Retry struct {
+	MaxRetries int           `yaml:"max_retries"`
+	Timeout    time.Duration `yaml:"timeout"`
 }
 
 type ClassifierWeights struct {
@@ -91,6 +105,26 @@ func applyDefaults(cfg *Config) {
 		c.Complexity = 0.10
 		c.ConvDepth = 0.10
 		c.OutputLength = 0.15
+	}
+	// Circuit breaker defaults
+	if cfg.Circuit.ErrorThreshold == 0 {
+		cfg.Circuit.ErrorThreshold = 0.5
+	}
+	if cfg.Circuit.WindowSize == 0 {
+		cfg.Circuit.WindowSize = 10 * time.Second
+	}
+	if cfg.Circuit.Cooldown == 0 {
+		cfg.Circuit.Cooldown = 30 * time.Second
+	}
+	if cfg.Circuit.MinSamples == 0 {
+		cfg.Circuit.MinSamples = 5
+	}
+	// Retry defaults
+	if cfg.Retry.MaxRetries == 0 {
+		cfg.Retry.MaxRetries = 1
+	}
+	if cfg.Retry.Timeout == 0 {
+		cfg.Retry.Timeout = 30 * time.Second
 	}
 }
 

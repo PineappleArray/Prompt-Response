@@ -36,6 +36,24 @@ classifier:
   conv_depth: 0.10
   output_length: 0.15
 
+# Circuit breaker: per-replica error tracking to fast-fail on bad replicas.
+# error_threshold: error rate (0-1) that trips the circuit.
+# window_size:     sliding window for error rate calculation.
+# cooldown:        time in open state before allowing a probe request.
+# min_samples:     minimum requests before evaluating error rate.
+circuit:
+  error_threshold: 0.5
+  window_size: 10s
+  cooldown: 30s
+  min_samples: 5
+
+# Retry: on upstream 5xx or connection failure, retry with a different replica.
+# max_retries: number of retries (total attempts = 1 + max_retries).
+# timeout:     per-attempt upstream timeout.
+retry:
+  max_retries: 1
+  timeout: 30s
+
 prefix_len: 512
 affinity_ttl: 5m
 threshold: 0.35
