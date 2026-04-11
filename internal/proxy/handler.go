@@ -135,29 +135,51 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	r.URL.Scheme = target.Scheme
 	r.Body = io.NopCloser(bytes.NewReader(body))
 
-	// Wrap response writer to measure true time-to-first-token.
-	// TTFT = time from request start to when the first SSE byte is written,
-	// NOT total response time. These have different optimization strategies.
+	// Stream interceptor: measures TTFT, inter-token latency, output token
+	// count, and tokens-per-second by parsing SSE chunks in real-time.
 	start := time.Now()
-	tw := &ttftWriter{ResponseWriter: w}
-	proxy.ServeHTTP(tw, r)
+	sw := newStreamInterceptor(w)
+	proxy.ServeHTTP(sw, r)
 	totalDuration := time.Since(start)
 
+	stats := sw.Stats()
 	ttft := totalDuration
-	if tw.wrote {
-		ttft = tw.firstByte.Sub(start)
+	if stats.Wrote {
+		ttft = stats.FirstByteAt.Sub(start)
 	}
 
 	h.scorer.RecordHit(prefixHash, replica.ID)
 
-	metrics.RequestsTotal.WithLabelValues(string(result.Tier), replica.ID, cacheHit).Inc()
-	metrics.RequestDuration.WithLabelValues(string(result.Tier), replica.ID).Observe(totalDuration.Seconds())
-	metrics.TimeToFirstToken.WithLabelValues(string(result.Tier), replica.ID).Observe(ttft.Seconds())
+	tier := string(result.Tier)
+	metrics.RequestsTotal.WithLabelValues(tier, replica.ID, cacheHit).Inc()
+	metrics.RequestDuration.WithLabelValues(tier, replica.ID).Observe(totalDuration.Seconds())
+	metrics.TimeToFirstToken.WithLabelValues(tier, replica.ID).Observe(ttft.Seconds())
+
+	// Stream-level metrics: output tokens, throughput, and inter-token latency.
+	var tps float64
+	var avgITLMs int64
+	if stats.OutputTokens > 0 {
+		metrics.OutputTokens.WithLabelValues(tier, replica.ID).Observe(float64(stats.OutputTokens))
+
+		if streamDur := stats.LastTokenAt.Sub(stats.FirstByteAt).Seconds(); streamDur > 0 {
+			tps = float64(stats.OutputTokens) / streamDur
+			metrics.TokensPerSecond.WithLabelValues(tier, replica.ID).Observe(tps)
+		}
+
+		if stats.ChunkCount > 1 {
+			avgITL := stats.InterTokenSum / time.Duration(stats.ChunkCount-1)
+			avgITLMs = avgITL.Milliseconds()
+			metrics.InterTokenLatency.WithLabelValues(tier, replica.ID).Observe(avgITL.Seconds())
+		}
+	}
 
 	slog.Info("completed",
 		"replica", replica.ID,
 		"ttft_ms", ttft.Milliseconds(),
 		"total_ms", totalDuration.Milliseconds(),
+		"output_tokens", stats.OutputTokens,
+		"tokens_per_sec", tps,
+		"avg_itl_ms", avgITLMs,
 		"cache_hit", cacheHit,
 	)
 }
@@ -270,28 +292,6 @@ func (h *Handler) handleRouterStatus(w http.ResponseWriter) {
 			},
 		},
 	})
-}
-
-// ttftWriter wraps http.ResponseWriter to capture the time of the first Write
-// call, enabling true time-to-first-token measurement for SSE streams.
-type ttftWriter struct {
-	http.ResponseWriter
-	firstByte time.Time
-	wrote     bool
-}
-
-func (w *ttftWriter) Write(b []byte) (int, error) {
-	if !w.wrote {
-		w.firstByte = time.Now()
-		w.wrote = true
-	}
-	return w.ResponseWriter.Write(b)
-}
-
-func (w *ttftWriter) Flush() {
-	if f, ok := w.ResponseWriter.(http.Flusher); ok {
-		f.Flush()
-	}
 }
 
 func extractMessages(req openAIRequest) (system, user string) {

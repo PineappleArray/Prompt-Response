@@ -43,7 +43,7 @@ Routes OpenAI-compatible requests to vLLM replicas by classifying request comple
 │  │                    │ best replica                           │   │
 │  │                    ▼                                        │   │
 │  │         Reverse Proxy (SSE streaming)                       │   │
-│  │         TTFT measured at first byte write                   │   │
+│  │         Stream Interceptor: TTFT + ITL + TPS               │   │
 │  └───────────────────────────────────────────────────────────┘   │
 │                                                                    │
 │  Endpoints: /healthz  /readyz  /v1/models  /v1/router/status       │
@@ -179,14 +179,28 @@ curl -s http://localhost:8080/metrics | grep router_
 - `router_requests_total{tier, replica, cache_hit}` — Request counter
 - `router_request_duration_seconds{tier, replica}` — Total latency histogram
 - `router_ttft_seconds{tier, replica}` — Time-to-first-token histogram (measured at first SSE byte, not completion)
+- `router_inter_token_latency_seconds{tier, replica}` — Inter-token latency histogram (time between consecutive SSE chunks with content). High ITL indicates KV cache thrashing, batch preemption, or GPU contention.
+- `router_output_tokens{tier, replica}` — Output tokens per request (estimated from SSE stream content)
+- `router_tokens_per_second{tier, replica}` — Output token throughput per request
 - `router_classifier_score{tier}` — Complexity score distribution
 - `router_replica_kv_cache_utilization{replica}` — Per-replica KV cache gauge
 
+### SSE Stream Instrumentation
+
+The router intercepts SSE response streams in real-time to measure three critical LLM inference metrics without modifying the data flowing to clients:
+
+- **TTFT (Time-to-First-Token)**: Captured at the first `Write()` call — the true latency before the user sees any output.
+- **ITL (Inter-Token Latency)**: Average time between consecutive SSE chunks containing token content. The key signal for detecting inference stalls caused by KV cache pressure, batch scheduling delays, or GPU contention.
+- **TPS (Tokens Per Second)**: Output throughput computed from total tokens and stream duration. The metric operators use for capacity planning and SLA monitoring.
+
+Together, TTFT + ITL + TPS form the complete inference performance trifecta — most routing layers only measure request-level latency.
+
 **Structured JSON logging** via `log/slog`:
 ```json
-{"time":"...","level":"INFO","msg":"routing request",
- "replica":"replica-small-1","tier_requested":"small","tier_matched":"small",
- "classifier_score":0.12,"prefix_hash":1234567890,"cache_hit":"miss"}
+{"time":"...","level":"INFO","msg":"completed",
+ "replica":"replica-small-1","ttft_ms":45,"total_ms":1200,
+ "output_tokens":150,"tokens_per_sec":125.0,"avg_itl_ms":8,
+ "cache_hit":"miss"}
 ```
 
 **Request ID** propagation via `X-Request-ID` header — correlate router logs with vLLM logs.
@@ -243,7 +257,7 @@ internal/
 ├── metrics/                 Prometheus metric definitions
 ├── middleware/               Request ID, timeout, body size limit
 ├── poller/                  Health polling + Prometheus metrics scraping
-├── proxy/                   HTTP handler, reverse proxy, TTFT measurement
+├── proxy/                   HTTP handler, reverse proxy, SSE stream instrumentation
 ├── scorer/                  Tier-aware replica selection
 ├── store/                   Affinity cache (Redis + in-memory)
 └── types/                   Shared type definitions
@@ -252,7 +266,7 @@ internal/
 ## Testing
 
 ```bash
-make test     # 36 tests, race detector enabled
+make test     # 52 tests, race detector enabled
 make bench    # Performance benchmarks
 make lint     # go vet + gofmt
 ```
@@ -262,6 +276,7 @@ Test coverage includes:
 - **Scorer**: 7 tests — tier matching, fallback, KV pressure, affinity, all-unhealthy
 - **Poller**: 7 tests — circuit breaker, recovery, timeout, multi-replica independence
 - **Handler**: 13 tests — routing, error responses, health endpoints, API compatibility, edge cases
+- **Stream**: 8 tests — SSE parsing, token counting, ITL measurement, fragmented writes, flush delegation
 - **Config**: 8 tests — validation, defaults, error cases
 
 ## Known Limitations

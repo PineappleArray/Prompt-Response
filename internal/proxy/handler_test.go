@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -211,10 +212,17 @@ func TestNoHealthyReplicas(t *testing.T) {
 }
 
 func TestValidRequestRoutes(t *testing.T) {
-	// Create a mock vLLM backend
+	// Create a mock vLLM backend that sends a realistic multi-chunk SSE stream
 	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
-		w.Write([]byte(`data: {"choices":[{"delta":{"content":"hi"}}]}`))
+		flusher, _ := w.(http.Flusher)
+		for _, token := range []string{"Hello", " world", "!"} {
+			fmt.Fprintf(w, "data: {\"choices\":[{\"delta\":{\"content\":\"%s\"}}]}\n\n", token)
+			if flusher != nil {
+				flusher.Flush()
+			}
+		}
+		fmt.Fprint(w, "data: [DONE]\n\n")
 	}))
 	defer backend.Close()
 
@@ -231,8 +239,12 @@ func TestValidRequestRoutes(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Errorf("expected 200, got %d", w.Code)
 	}
-	if !strings.Contains(w.Body.String(), "hi") {
-		t.Errorf("expected proxied response, got %s", w.Body.String())
+	body := w.Body.String()
+	if !strings.Contains(body, "Hello") {
+		t.Errorf("expected proxied response containing 'Hello', got %s", body)
+	}
+	if !strings.Contains(body, "[DONE]") {
+		t.Errorf("expected [DONE] sentinel in response, got %s", body)
 	}
 }
 

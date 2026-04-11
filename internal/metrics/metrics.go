@@ -48,4 +48,35 @@ var (
 		},
 		[]string{"replica"},
 	)
+
+	// Inter-token latency: the key metric for detecting inference stalls.
+	// High ITL indicates KV cache thrashing, batch preemption, or GPU contention.
+	InterTokenLatency = promauto.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "router_inter_token_latency_seconds",
+			Help:    "Inter-token latency (time between consecutive SSE chunks with content)",
+			Buckets: []float64{.005, .01, .02, .05, .1, .2, .5, 1},
+		},
+		[]string{"tier", "replica"},
+	)
+
+	// Output tokens per request — enables cost tracking and capacity planning.
+	OutputTokens = promauto.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "router_output_tokens",
+			Help:    "Output tokens per request (estimated from SSE stream content)",
+			Buckets: []float64{10, 50, 100, 250, 500, 1000, 2000},
+		},
+		[]string{"tier", "replica"},
+	)
+
+	// Tokens per second — the throughput metric operators care about most.
+	TokensPerSecond = promauto.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "router_tokens_per_second",
+			Help:    "Output token throughput per request",
+			Buckets: []float64{5, 10, 20, 50, 100, 200},
+		},
+		[]string{"tier", "replica"},
+	)
 )
