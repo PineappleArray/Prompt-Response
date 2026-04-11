@@ -1,0 +1,28 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "case \"$CLAUDE_TOOL_INPUT\" in *'--force'*|*'--hard'*|*'-rf '*|*'rm -rf'*|*'DROP TABLE'*|*'drop table'*|*'--no-verify'*|*'push -f'*|*'push --force'*) echo 'CAUTION: Destructive command detected. Confirm intent before proceeding.' ;; esac",
+            "statusMessage": "Checking for destructive commands..."
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "case \"$CLAUDE_TOOL_INPUT\" in *'git commit'*) COMMIT_MSG=$(git log -1 --pretty=%B 2>/dev/null); if echo \"$COMMIT_MSG\" | grep -q 'claude.ai/code/session'; then CLEANED=$(echo \"$COMMIT_MSG\" | sed '/https:\\/\\/claude\\.ai\\/code\\/session/d' | sed -e :a -e '/^\\n*$/{$d;N;ba}'); git commit --amend -m \"$CLEANED\" 2>/dev/null; echo 'Stripped session link from commit message.'; fi ;; esac",
+            "statusMessage": "Cleaning commit metadata..."
+          }
+        ]
+      }
+    ]
+  }
+}

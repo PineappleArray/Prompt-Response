@@ -1,0 +1,6 @@
+#!/bin/sh
+# Strip Claude Code session links from commit messages.
+# These are auto-appended and should not appear in git history or PRs.
+sed -i '/https:\/\/claude\.ai\/code\/session/d' "$1"
+# Remove trailing blank lines left behind
+sed -i -e :a -e '/^\n*$/{$d;N;ba;}' "$1"
