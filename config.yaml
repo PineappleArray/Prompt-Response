@@ -77,6 +77,13 @@ audit:
   enabled: true
   buffer_size: 1000
 
+# Usage tracking: per-tenant input/output token counters for cost attribution.
+# Query via GET /v1/router/usage (all tenants) or ?tenant=X (single tenant).
+# Also exposed as router_tokens_consumed_total Prometheus counter for
+# multi-instance aggregation and chargeback reporting.
+usage:
+  enabled: true
+
 prefix_len: 512
 affinity_ttl: 5m
 threshold: 0.35

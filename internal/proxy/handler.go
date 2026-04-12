@@ -21,7 +21,13 @@ import (
 	"prompt-response/internal/middleware"
 	"prompt-response/internal/scorer"
 	"prompt-response/internal/types"
+	"prompt-response/internal/usage"
 )
+
+// anonymousTenant is the tenant key used for unauthenticated requests when
+// recording token usage. Keeps the tenant label cardinality bounded and
+// distinguishes unauthenticated traffic in billing reports.
+const anonymousTenant = "anonymous"
 
 // hopByHop headers that must not be forwarded between client and upstream.
 var hopByHop = map[string]bool{
@@ -41,16 +47,18 @@ type Handler struct {
 	cfg        *config.Config
 	circuit    *circuit.Registry
 	audit      *audit.Trail
+	usage      *usage.Tracker
 	client     *http.Client
 }
 
-func New(s *scorer.Scorer, c *classifier.HeuristicClassifier, cfg *config.Config, cr *circuit.Registry, trail *audit.Trail) *Handler {
+func New(s *scorer.Scorer, c *classifier.HeuristicClassifier, cfg *config.Config, cr *circuit.Registry, trail *audit.Trail, tracker *usage.Tracker) *Handler {
 	return &Handler{
 		scorer:     s,
 		classifier: c,
 		cfg:        cfg,
 		circuit:    cr,
 		audit:      trail,
+		usage:      tracker,
 		client: &http.Client{
 			CheckRedirect: func(*http.Request, []*http.Request) error {
 				return http.ErrUseLastResponse
@@ -84,6 +92,9 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	case "/v1/router/audit":
 		h.handleAudit(w, r)
+		return
+	case "/v1/router/usage":
+		h.handleUsage(w, r)
 		return
 	}
 
@@ -292,6 +303,16 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			Reason:       result.Reason,
 		})
 	}
+
+	if h.usage != nil {
+		tenant := tenantID(r)
+		if tenant == "" {
+			tenant = anonymousTenant
+		}
+		h.usage.Record(tenant, classReq.TokenCount, stats.OutputTokens)
+		metrics.TokensConsumedTotal.WithLabelValues(tenant, "input").Add(float64(classReq.TokenCount))
+		metrics.TokensConsumedTotal.WithLabelValues(tenant, "output").Add(float64(stats.OutputTokens))
+	}
 }
 
 // doUpstream sends the request body to the given replica and returns the
@@ -496,6 +517,49 @@ func (h *Handler) handleAudit(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]any{
 		"records": records,
 		"count":   len(records),
+		"enabled": true,
+	})
+}
+
+// handleUsage returns per-tenant token consumption. With ?tenant=X, returns
+// just that tenant's usage; otherwise returns all tenants.
+func (h *Handler) handleUsage(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	if h.usage == nil {
+		json.NewEncoder(w).Encode(map[string]any{
+			"tenants": map[string]any{},
+			"count":   0,
+			"enabled": false,
+		})
+		return
+	}
+
+	if tenant := r.URL.Query().Get("tenant"); tenant != "" {
+		u, ok := h.usage.Get(tenant)
+		if !ok {
+			w.WriteHeader(http.StatusNotFound)
+			json.NewEncoder(w).Encode(map[string]any{
+				"error": map[string]any{
+					"message": "tenant not found",
+					"type":    "not_found",
+					"tenant":  tenant,
+				},
+			})
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]any{
+			"tenant":  tenant,
+			"usage":   u,
+			"enabled": true,
+		})
+		return
+	}
+
+	all := h.usage.All()
+	json.NewEncoder(w).Encode(map[string]any{
+		"tenants": all,
+		"count":   len(all),
 		"enabled": true,
 	})
 }

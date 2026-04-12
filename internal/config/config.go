@@ -21,6 +21,7 @@ type Config struct {
 	Auth         Auth              `yaml:"auth"`
 	RateLimit    RateLimit         `yaml:"ratelimit"`
 	Audit        Audit             `yaml:"audit"`
+	Usage        Usage             `yaml:"usage"`
 	PrefixLen    int               `yaml:"prefix_len"`
 	AffinityTTL  time.Duration     `yaml:"affinity_ttl"`
 	Threshold    float64           `yaml:"threshold"`
@@ -90,6 +91,11 @@ type RateLimit struct {
 type Audit struct {
 	Enabled    bool `yaml:"enabled"`
 	BufferSize int  `yaml:"buffer_size"`
+}
+
+// Usage controls per-tenant token consumption tracking for cost attribution.
+type Usage struct {
+	Enabled bool `yaml:"enabled"`
 }
 
 func Load(path string) (*Config, error) {
