@@ -10,7 +10,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"prompt-response/internal/audit"
 	"prompt-response/internal/auth"
 	"prompt-response/internal/circuit"
@@ -22,6 +21,8 @@ import (
 	"prompt-response/internal/ratelimit"
 	"prompt-response/internal/scorer"
 	"prompt-response/internal/store"
+
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 var (

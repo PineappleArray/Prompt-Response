@@ -82,3 +82,18 @@ affinity_ttl: 5m
 threshold: 0.35
 max_queue: 20
 poll_interval: 2s
+
+classifier_settings:
+  maxTokensForNormalization: 120  #tokens beyond this score 1.0 on length signal
+  codeKeywordThreshold: 3         #code keyword hits for max score
+  reasoningKeywordThreshold: 2    #reasoning keyword hits for max score
+  complexityKeywordThreshold: 2   #complexity keyword hits for max score
+  maxConversationDepth: 5         #turns beyond this score 1.0 on depth signal
+  maxTokensForOutputEstimate: 200 #input tokens beyond this assume long output
+
+#Keywords that will bypass the classifier and be sent directly to the large replica.
+keywords: 
+  strong_reasoning: ["explain", "reason", "think", "why", "how", "what if", analyze", "compare", "contrast", "evaluate", "justify", "prove", "disprove"]
+  code: ["code", "program", "script", "function", "class", "def", "import"]
+  complexity: ["step by step", "edge case", "production","distributed", "scale", "optimize"]
+  reasoning: ["explain", "reason", "think", "why", "how", "what if", "analyze", "compare", "contrast", "evaluate", "justify", "prove", "disprove"]

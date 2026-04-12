@@ -26,6 +26,7 @@ type Config struct {
 	Threshold    float64           `yaml:"threshold"`
 	MaxQueue     float64           `yaml:"max_queue"`
 	PollInterval time.Duration     `yaml:"poll_interval"`
+	Keywords     KeywordSets       `yaml:"keywords"`
 }
 
 type Circuit struct {
@@ -33,6 +34,12 @@ type Circuit struct {
 	WindowSize     time.Duration `yaml:"window_size"`
 	Cooldown       time.Duration `yaml:"cooldown"`
 	MinSamples     int           `yaml:"min_samples"`
+}
+
+type KeywordSets struct {
+	Code       []string `yaml:"code"`
+	Reasoning  []string `yaml:"reasoning"`
+	Complexity []string `yaml:"complexity"`
 }
 
 type Retry struct {
@@ -164,6 +171,24 @@ func applyDefaults(cfg *Config) {
 	// Audit defaults
 	if cfg.Audit.BufferSize == 0 {
 		cfg.Audit.BufferSize = 1000
+	}
+
+	if cfg.Keywords.Code == nil {
+		cfg.Keywords.Code = []string{}
+	}
+	if cfg.Keywords.Reasoning == nil {
+		cfg.Keywords.Reasoning = []string{}
+	}
+	if cfg.Keywords.Complexity == nil {
+		cfg.Keywords.Complexity = []string{}
+	}
+}
+
+func loadModelWeights(cfg *Config) KeywordSets {
+	return KeywordSets{
+		Code:       cfg.Keywords.Code,
+		Reasoning:  cfg.Keywords.Reasoning,
+		Complexity: cfg.Keywords.Complexity,
 	}
 }
 
