@@ -59,7 +59,7 @@ func newTestHandler(replicas []config.Replica) *Handler {
 		Cooldown:       cfg.Circuit.Cooldown,
 		MinSamples:     cfg.Circuit.MinSamples,
 	})
-	return New(scor, cls, cfg, cr, nil)
+	return New(scor, cls, cfg, cr, nil, nil)
 }
 
 func TestHealthz(t *testing.T) {
@@ -526,7 +526,7 @@ func TestAuditEndpoint_WithRecords(t *testing.T) {
 	})
 	cr := circuit.NewRegistry(circuit.Config{ErrorThreshold: 0.5, WindowSize: 10 * time.Second, Cooldown: 30 * time.Second, MinSamples: 5})
 	trail := audit.NewTrail(100)
-	h := New(scor, cls, cfg, cr, trail)
+	h := New(scor, cls, cfg, cr, trail, nil)
 
 	// Make a request to generate an audit record
 	payload := `{"messages":[{"role":"user","content":"hello"}]}`
@@ -597,7 +597,7 @@ func TestAuditRecords_NoReplicas(t *testing.T) {
 	})
 	cr := circuit.NewRegistry(circuit.Config{ErrorThreshold: 0.5, WindowSize: 10 * time.Second, Cooldown: 30 * time.Second, MinSamples: 5})
 	trail := audit.NewTrail(100)
-	h := New(scor, cls, cfg, cr, trail)
+	h := New(scor, cls, cfg, cr, trail, nil)
 
 	payload := `{"messages":[{"role":"user","content":"hello"}]}`
 	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(payload))

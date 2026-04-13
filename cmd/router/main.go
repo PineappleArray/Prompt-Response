@@ -10,6 +10,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"prompt-response/internal/audit"
 	"prompt-response/internal/auth"
 	"prompt-response/internal/circuit"
@@ -21,8 +22,7 @@ import (
 	"prompt-response/internal/ratelimit"
 	"prompt-response/internal/scorer"
 	"prompt-response/internal/store"
-
-	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"prompt-response/internal/usage"
 )
 
 var (
@@ -115,7 +115,13 @@ func main() {
 		slog.Info("audit trail enabled", "buffer_size", cfg.Audit.BufferSize)
 	}
 
-	handler := proxy.New(scor, cls, cfg, cb, trail)
+	var tracker *usage.Tracker
+	if cfg.Usage.Enabled {
+		tracker = usage.NewTracker()
+		slog.Info("per-tenant token usage tracking enabled")
+	}
+
+	handler := proxy.New(scor, cls, cfg, cb, trail, tracker)
 
 	// Build middleware chain: inner → timeout → body limit → [ratelimit] → [auth] → request ID
 	var inner http.Handler = middleware.RequestTimeout(30*time.Second,

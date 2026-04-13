@@ -124,4 +124,14 @@ var (
 		},
 		[]string{"tenant"},
 	)
+
+	// Tokens consumed per tenant and direction (input/output).
+	// Enables cost attribution and chargeback across tenants.
+	TokensConsumedTotal = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "router_tokens_consumed_total",
+			Help: "Total tokens consumed per tenant and direction (input/output)",
+		},
+		[]string{"tenant", "direction"},
+	)
 )

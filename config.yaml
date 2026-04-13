@@ -77,6 +77,97 @@ audit:
   enabled: true
   buffer_size: 1000
 
+# Usage tracking: per-tenant input/output token counters for cost attribution.
+# Query via GET /v1/router/usage (all tenants) or ?tenant=X (single tenant).
+# Also exposed as router_tokens_consumed_total Prometheus counter for
+# multi-instance aggregation and chargeback reporting.
+usage:
+  enabled: true
+
+prefix_len: 512
+affinity_ttl: 5m
+threshold: 0.35
+max_queue: 20
+poll_interval: 2s
+listen_addr: ":8080"
+
+replicas:
+  - id: replica-small-1
+    url: http://localhost:8001
+    model: Qwen/Qwen2.5-1.5B-Instruct
+    tier: small
+
+  - id: replica-large-1
+    url: http://localhost:8002
+    model: Qwen/Qwen2.5-7B-Instruct
+    tier: large
+
+redis:
+  addr: localhost:6379
+
+# Scoring weights for replica selection (should sum to ~1.0).
+# cache_affinity: prefer replicas that already cached this system prompt prefix.
+# queue_depth:    prefer replicas with shorter request queues.
+# kv_cache_pressure: penalize replicas nearing GPU KV cache exhaustion
+#                    (at 90%+, vLLM evicts prefixes and preempts running requests).
+# baseline:       constant tiebreaker.
+weights:
+  cache_affinity: 0.50
+  queue_depth: 0.25
+  kv_cache_pressure: 0.15
+  baseline: 0.10
+
+# Classifier signal weights (should sum to ~1.0).
+# These determine how the 6-signal heuristic classifier scores request complexity.
+classifier:
+  length: 0.20
+  code: 0.30
+  reasoning: 0.15
+  complexity: 0.10
+  conv_depth: 0.10
+  output_length: 0.15
+
+# Circuit breaker: per-replica error tracking to fast-fail on bad replicas.
+# error_threshold: error rate (0-1) that trips the circuit.
+# window_size:     sliding window for error rate calculation.
+# cooldown:        time in open state before allowing a probe request.
+# min_samples:     minimum requests before evaluating error rate.
+circuit:
+  error_threshold: 0.5
+  window_size: 10s
+  cooldown: 30s
+  min_samples: 5
+
+# Retry: on upstream 5xx or connection failure, retry with a different replica.
+# max_retries: number of retries (total attempts = 1 + max_retries).
+# timeout:     per-attempt upstream timeout.
+retry:
+  max_retries: 1
+  timeout: 30s
+
+# Authentication: API key validation for all non-health endpoints.
+# When enabled, requests must include Authorization: Bearer <key> or X-API-Key header.
+# Health endpoints (/healthz, /readyz) bypass authentication.
+auth:
+  enabled: false
+  keys: []
+  # - key: "sk-your-api-key"
+  #   tenant: "your-tenant-id"
+
+# Rate limiting: per-tenant token bucket to prevent any single client
+# from monopolizing replicas. Uses tenant ID (from auth) or client IP.
+# requests_per_minute: sustained rate, burst: max tokens for bursts.
+ratelimit:
+  enabled: false
+  requests_per_minute: 60
+  burst: 10
+
+# Audit trail: ring buffer of recent routing decisions for debugging.
+# Query via GET /v1/router/audit?limit=50.
+audit:
+  enabled: true
+  buffer_size: 1000
+
 prefix_len: 512
 affinity_ttl: 5m
 threshold: 0.35
