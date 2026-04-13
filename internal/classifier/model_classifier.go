@@ -1,13 +1,22 @@
 package classifier
 
 import (
-	"prompt-response/internal/config"
+	"fmt"
+	"math"
+	"strings"
+
+	"prompt-response/internal/types"
 )
 
-func LoadClassifierSettings(cfg *config.Config) (ClassifierWeights, KeywordSets) {
-	return loadModelWeights(cfg), loadKeywordSets(cfg)
+type ModelClassifier struct {
+	weights   SignalWeights
+	threshold float64
+	keywords  KeywordSets
 }
 
-func classifyPrompt() {
-
+type ModelConfig struct {
+	Weights   SignalWeights
+	Threshold float64
+	keywords  KeywordSets
 }
+
