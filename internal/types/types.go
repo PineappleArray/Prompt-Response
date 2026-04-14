@@ -6,6 +6,7 @@ const (
 	TierSmall  ModelTier = "small"
 	TierMedium ModelTier = "medium"
 	TierLarge  ModelTier = "large"
+	TierCode   ModelTier = "code"
 )
 
 func ValidTier(t ModelTier) bool {
