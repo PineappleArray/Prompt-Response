@@ -74,6 +74,7 @@ func (p *Poller) pollLoop(ctx context.Context, r config.Replica) {
 		case <-ticker.C:
 			state, err := p.scrape(r)
 			p.mu.Lock()
+			println(err.Error())
 			if err != nil {
 				p.failures[r.ID]++
 				if p.failures[r.ID] >= 3 {

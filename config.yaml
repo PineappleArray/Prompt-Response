@@ -89,7 +89,6 @@ affinity_ttl: 5m
 threshold: 0.35
 max_queue: 20
 poll_interval: 2s
-listen_addr: ":8080"
 
 classifier_settings:
   maxTokensForNormalization: 120  #tokens beyond this score 1.0 on length signal
