@@ -297,6 +297,11 @@ make lint     # go vet + gofmt check
 make docker   # docker compose up --build
 make clean    # Remove build artifacts
 ```
+### Layer 1 — Proxy Handler (`handler.go`)
+Receives incoming requests and builds a structured representation
+
+### Layer 2 — Classifier (`classifier.go`)
+Classifies the request with a preliminary textbase word classification system whose that aims to save on computation and latency. Uses a Deberta classifier for type classification utilized for its compact size and disentangled attention which allows for better intent classification. After classification the metrics of complexity, task specification, and domain knowledge are also utilized when selecting a model as Deberta will misclassify some obvious code generation as text generation. 
 
 ### Layer 3 — Scorer (`scorer.go`)
 Checks Redis for semantically similar prompts that have already been processed. If a cache hit is found above a similarity threshold, the cached response is returned. Otherwise, it selects an available replica from the registry for the assigned tier.
