@@ -251,6 +251,86 @@ redis:
 	}
 }
 
+func TestLoad_NumericBounds(t *testing.T) {
+	const base = `
+replicas:
+  - id: r1
+    url: http://localhost:8001
+    model: test
+    tier: small
+redis:
+  addr: localhost:6379
+`
+	tests := []struct {
+		name    string
+		extra   string
+		wantErr string
+	}{
+		{
+			name:    "threshold above 1",
+			extra:   "threshold: 1.5\n",
+			wantErr: "threshold must be in [0, 1]",
+		},
+		{
+			name:    "threshold negative",
+			extra:   "threshold: -0.2\n",
+			wantErr: "threshold must be in [0, 1]",
+		},
+		{
+			name:    "max_queue negative",
+			extra:   "max_queue: -1\n",
+			wantErr: "max_queue must be positive",
+		},
+		{
+			name:    "negative scoring weight",
+			extra:   "weights:\n  cache_affinity: -0.1\n  queue_depth: 0.3\n  kv_cache_pressure: 0.3\n  baseline: 0.3\n",
+			wantErr: "scoring weights must be non-negative",
+		},
+		{
+			name:    "circuit error_threshold above 1",
+			extra:   "circuit:\n  error_threshold: 1.2\n",
+			wantErr: "circuit error_threshold must be in [0, 1]",
+		},
+		{
+			name:    "circuit error_threshold negative",
+			extra:   "circuit:\n  error_threshold: -0.1\n",
+			wantErr: "circuit error_threshold must be in [0, 1]",
+		},
+		{
+			name:    "circuit window_size negative",
+			extra:   "circuit:\n  window_size: -1s\n",
+			wantErr: "circuit window_size must be positive",
+		},
+		{
+			name:    "circuit min_samples negative",
+			extra:   "circuit:\n  min_samples: -3\n",
+			wantErr: "circuit min_samples must be positive",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			path := writeTemp(t, base+tc.extra)
+			_, err := Load(path)
+			if err == nil {
+				t.Fatalf("expected error containing %q, got nil", tc.wantErr)
+			}
+			if !containsString(err.Error(), tc.wantErr) {
+				t.Errorf("expected error containing %q, got %q", tc.wantErr, err.Error())
+			}
+		})
+	}
+}
+
+func containsString(haystack, needle string) bool {
+	for i := 0; i+len(needle) <= len(haystack); i++ {
+		if haystack[i:i+len(needle)] == needle {
+			return true
+		}
+	}
+	return false
+}
+
 func writeTemp(t *testing.T, content string) string {
 	t.Helper()
 	dir := t.TempDir()
