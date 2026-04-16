@@ -189,7 +189,7 @@ func validate(cfg *Config) error {
 			return fmt.Errorf("replica must have id and url")
 		}
 		if !types.ValidTier(r.Tier) {
-			return fmt.Errorf("replica %s: invalid tier %q (valid: small, medium, large)", r.ID, r.Tier)
+			return fmt.Errorf("replica %s: invalid tier %q (valid: small, medium, large, code)", r.ID, r.Tier)
 		}
 	}
 	if cfg.Redis.Addr == "" {
@@ -208,6 +208,25 @@ func validate(cfg *Config) error {
 	}
 	if cfg.Audit.Enabled && cfg.Audit.BufferSize <= 0 {
 		return fmt.Errorf("audit buffer_size must be positive")
+	}
+	if cfg.Threshold < 0 || cfg.Threshold > 1 {
+		return fmt.Errorf("threshold must be in [0, 1], got %v", cfg.Threshold)
+	}
+	if cfg.MaxQueue <= 0 {
+		return fmt.Errorf("max_queue must be positive, got %v", cfg.MaxQueue)
+	}
+	if cfg.Weights.CacheAffinity < 0 || cfg.Weights.QueueDepth < 0 ||
+		cfg.Weights.KVCachePressure < 0 || cfg.Weights.Baseline < 0 {
+		return fmt.Errorf("scoring weights must be non-negative")
+	}
+	if cfg.Circuit.ErrorThreshold < 0 || cfg.Circuit.ErrorThreshold > 1 {
+		return fmt.Errorf("circuit error_threshold must be in [0, 1], got %v", cfg.Circuit.ErrorThreshold)
+	}
+	if cfg.Circuit.WindowSize <= 0 {
+		return fmt.Errorf("circuit window_size must be positive, got %v", cfg.Circuit.WindowSize)
+	}
+	if cfg.Circuit.MinSamples <= 0 {
+		return fmt.Errorf("circuit min_samples must be positive, got %d", cfg.Circuit.MinSamples)
 	}
 	return nil
 }

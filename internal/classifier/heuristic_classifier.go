@@ -17,6 +17,21 @@ const (
 	maxTokensForOutputEstimate = 200 // input tokens beyond this assume long output
 )
 
+// Signal lists hoisted to package scope so each Classify call reuses the same
+// backing array instead of allocating a fresh slice header.
+var (
+	codeStrongSignals = []string{"implement", "build", "write", "create"}
+
+	longOutputSignals = []string{
+		"list all", "write a", "generate", "explain step by step",
+		"create a", "implement", "describe in detail",
+	}
+	shortOutputSignals = []string{
+		"what is", "yes or no", "true or false",
+		"which one", "name the", "how many",
+	}
+)
+
 type HeuristicClassifier struct {
 	weights   SignalWeights
 	threshold float64
@@ -91,9 +106,9 @@ func (h *HeuristicClassifier) scoreCode(req Request) float64 {
 		return 1.0
 	}
 
-	strongSignals := []string{"implement", "build", "write", "create"}
-	for _, s := range strongSignals {
-		if strings.Contains(strings.ToLower(req.UserMessage), s) {
+	lower := strings.ToLower(req.UserMessage)
+	for _, s := range codeStrongSignals {
+		if strings.Contains(lower, s) {
 			return 1.0
 		}
 	}
@@ -124,22 +139,13 @@ func (h *HeuristicClassifier) scoreConversationDepth(turns int) float64 {
 // that ranking requests by estimated output length (rather than predicting
 // exact token counts) can achieve significant latency reductions under load.
 func (h *HeuristicClassifier) scoreExpectedOutputLength(req Request) float64 {
-	longSignals := []string{
-		"list all", "write a", "generate", "explain step by step",
-		"create a", "implement", "describe in detail",
-	}
-	shortSignals := []string{
-		"what is", "yes or no", "true or false",
-		"which one", "name the", "how many",
-	}
-
 	lower := strings.ToLower(req.UserMessage)
-	for _, s := range longSignals {
+	for _, s := range longOutputSignals {
 		if strings.Contains(lower, s) {
 			return 0.8
 		}
 	}
-	for _, s := range shortSignals {
+	for _, s := range shortOutputSignals {
 		if strings.Contains(lower, s) {
 			return 0.2
 		}
