@@ -63,7 +63,6 @@ class CustomModel(nn.Module, PyTorchModelHubMixin):
                 r["task_type"] = self.task_type_map[str(idx)]
             elif name in self.weights_map and name in self.divisor_map:
                 r[name] = self._score(lg, name)
-            # anything else (e.g. no_label_reason) is ignored for routing
 
         r["prompt_complexity_score"] = (
             0.35 * r.get("creativity_scope", 0.0)
@@ -74,12 +73,6 @@ class CustomModel(nn.Module, PyTorchModelHubMixin):
             + 0.05 * r.get("number_of_few_shots", 0.0)
         )
         return r
-
-
-#DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-#MODEL = "nvidia/prompt-task-and-complexity-classifier"
-#tokenizer = AutoTokenizer.from_pretrained(MODEL)
-#model = CustomModel.from_pretrained(MODEL).to(DEVICE).eval()
 
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
@@ -103,7 +96,6 @@ model = CustomModel(
     divisor_map=divisor_map,
 )
 
-# 3. Download and load the actual weights
 try:
     weights_path = hf_hub_download(repo_id=MODEL, filename="model.safetensors")
     state_dict = load_file(weights_path)

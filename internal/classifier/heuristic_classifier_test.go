@@ -1,5 +1,7 @@
 package classifier
 
+//DECRICATED
+
 import (
 	"testing"
 
