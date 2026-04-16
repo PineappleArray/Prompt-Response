@@ -9,6 +9,10 @@ from huggingface_hub import hf_hub_download
 import json
 from safetensors.torch import load_file
 
+CODE_SIGNALS = {"html", "css", "javascript", "python", "code",  #Made as the current model used to fit will sometimes
+                "function", "script", "api", "sql", "regex",    #miss some of the coding prompts
+                "website", "app", "debug", "error", "compile",
+                "algorithm", "class", "import", "return"}
 
 class MeanPooling(nn.Module):
     def forward(self, h, mask):
@@ -130,16 +134,32 @@ print("Head order:", model.target_names)
 # Print head order once on startup so you can sanity-check it.
 print("Head order from config:", model.target_names)
 
-SMALL = "llama-3.1-8b-instruct"
-CODE = "qwen2.5-coder-7b-instruct"
-REASONING = "qwen2.5-32b-instruct"
+SMALL = "qwen2.5-1.5B-instruct-awq"
+CODE = "qwen2.5-coder-7b-instruct-awq"
+REASONING = "qwen2.5-7B-instruct-awq"
+LARGE = "qwen2.5-72b-instruct"
 
 
 def pick(r):
+    # Written to ensure that the classifier would not misclassify prompts that is associated with code
+    if r.get("reasoning", 0) >= 0.80 or r.get("prompt_complexity_score", 0) >= 0.80:
+        return LARGE
+    for word in CODE_SIGNALS:
+        if word in r.get("task_type").lower():
+            return CODE
+    if "QA" in r.get("task_type"):
+        return SMALL 
+    if r.get("task_type") == "Text Generation" and r.get("domain_knowledge") >= 0.60:
+        return REASONING
     if r.get("task_type") == "Code Generation":
         return CODE
     if r.get("reasoning", 0) >= 0.5 or r.get("prompt_complexity_score", 0) >= 0.5:
         return REASONING
+    if r.get("domain", 0) >= 0.75 and r.get("prompt_complexity_score", 0) >= 0.35:
+        return REASONING
+    if r.get("prompt_complexity_score", 0) >= 0.5:
+        return REASONING
+    
     return SMALL
 
 
@@ -150,6 +170,14 @@ def classify_prompt(prompt: str) -> dict:
         max_length=512, padding="max_length", truncation=True,
     ).to(DEVICE)
     return model(enc)
+
+def smart_truncate(text, max_length=512):
+    tokens = tokenizer.encode(text, add_special_tokens=False)
+    if len(tokens) <= max_length:
+        return text
+    half = max_length // 2
+    truncated = tokens[:half] + tokens[-half:]
+    return tokenizer.decode(truncated)
 
 
 app = FastAPI()
@@ -168,9 +196,10 @@ class Resp(BaseModel):
 
 @app.post("/classify", response_model=Resp)
 def classify(req: Req):
+    text = req.prompt
     r = classify_prompt(req.prompt)
     return Resp(
-        model=pick(r),
+        model=pick(r, text),
         task_type=r["task_type"],
         reasoning=r.get("reasoning", 0.0),
         complexity=r.get("prompt_complexity_score", 0.0),
