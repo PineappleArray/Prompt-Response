@@ -11,7 +11,7 @@ const (
 
 func ValidTier(t ModelTier) bool {
 	switch t {
-	case TierSmall, TierMedium, TierLarge:
+	case TierSmall, TierMedium, TierLarge, TierCode:
 		return true
 	}
 	return false

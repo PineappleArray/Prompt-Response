@@ -205,6 +205,26 @@ redis:
 	}
 }
 
+func TestLoad_CodeTier(t *testing.T) {
+	content := `
+replicas:
+  - id: r1
+    url: http://localhost:8001
+    model: coder
+    tier: code
+redis:
+  addr: localhost:6379
+`
+	path := writeTemp(t, content)
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.Replicas[0].Tier != types.TierCode {
+		t.Errorf("expected tier code, got %s", cfg.Replicas[0].Tier)
+	}
+}
+
 func TestLoad_MissingRedis(t *testing.T) {
 	content := `
 replicas:

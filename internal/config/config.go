@@ -189,7 +189,7 @@ func validate(cfg *Config) error {
 			return fmt.Errorf("replica must have id and url")
 		}
 		if !types.ValidTier(r.Tier) {
-			return fmt.Errorf("replica %s: invalid tier %q (valid: small, medium, large)", r.ID, r.Tier)
+			return fmt.Errorf("replica %s: invalid tier %q (valid: small, medium, large, code)", r.ID, r.Tier)
 		}
 	}
 	if cfg.Redis.Addr == "" {
