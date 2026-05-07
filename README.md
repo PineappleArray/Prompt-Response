@@ -2,7 +2,7 @@
 
 **Intelligent LLM inference router** with tier-aware routing, KV-cache-pressure scoring, prefix-cache affinity, and SJF-inspired output estimation.
 
-Routes OpenAI-compatible requests to vLLM replicas by classifying request complexity across 6 heuristic signals, then selecting the optimal replica based on a weighted composite of cache affinity, queue depth, and GPU KV cache pressure — ensuring simple queries don't waste large-model capacity and cache-pressured replicas don't receive more traffic that would destroy their prefix cache hits.
+Routes OpenAI-compatible requests to vLLM replicas by classifying request complexity across 6 heuristic signals with a Deberta prompt classifier, then selecting the optimal replica based on a weighted composite of cache affinity, queue depth, and GPU KV cache pressure — ensuring simple queries don't waste large-model capacity and cache-pressured replicas don't receive more traffic that would destroy their prefix cache hits.
 
 ## Architecture
 
@@ -28,6 +28,9 @@ Routes OpenAI-compatible requests to vLLM replicas by classifying request comple
 │  │  │          6-Signal Classifier             │             │   │
 │  │  │  length · code · reasoning · complexity  │             │   │
 │  │  │  conv_depth · output_length (SJF)        │             │   │
+│  │  │  1. Prelim Vocab Search ie, (code,       │             │   │
+│  │  │  analyze) to save computation            │             │   │
+│  │  │  2. Nvidia Deberta Prompt Classifier     │             │   │
 │  │  │  ────────────────────────────            │             │   │
 │  │  │  score ≥ threshold → large tier          │             │   │
 │  │  │  score < threshold → small tier          │             │   │
@@ -62,7 +65,7 @@ Routes OpenAI-compatible requests to vLLM replicas by classifying request comple
 ## Key Design Decisions
 
 ### Why Tier-Aware Routing
-Simple factual queries ("what is 2+2") don't need a 7B parameter model. The classifier determines request complexity and routes to the appropriate tier — small models handle simple queries faster and cheaper, large models handle complex reasoning. Graceful fallback ensures requests are always served even when no tier-matched replica exists.
+Simple factual queries ("what is 2+2") don't need a 7B parameter model. The classifier determines request complexity with a multilayered system with a quick perliminary vocab analysis and then a Deberta classifier for trickier prompts. Routes the prompt to its appropriate tier — small models handle simple queries faster and cheaper, large models handle complex reasoning. Graceful fallback ensures requests are always served even when no tier-matched replica exists.
 
 ### Why KV Cache Pressure Scoring
 The poller scrapes `vllm:gpu_cache_usage_perc` from each replica. At 90%+ utilization, vLLM begins evicting cached prefixes and preempting running requests. Cache affinity and KV pressure are complementary signals: affinity tries to reuse cached prefixes, but pressure prevents routing to a replica where the prefix would be evicted before the request arrives — routing more traffic to a pressured replica destroys the very cache hits the affinity system built.

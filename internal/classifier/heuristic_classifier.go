@@ -1,5 +1,5 @@
 package classifier
-
+//DECRICATED
 import (
 	"fmt"
 	"math"
