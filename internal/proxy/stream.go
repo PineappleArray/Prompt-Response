@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"net/http"
+	"sync/atomic"
 	"time"
 )
 
@@ -15,15 +16,20 @@ type streamStats struct {
 	ChunkCount    int
 	InterTokenSum time.Duration // sum of inter-token gaps for ITL calculation
 	Wrote         bool
+	DoneSeen      bool // true once the SSE [DONE] terminator has been observed
 }
 
 // streamInterceptor wraps http.ResponseWriter to parse SSE chunks in real-time,
 // counting output tokens and measuring inter-token latency (ITL) without
 // modifying the stream. Subsumes ttftWriter's TTFT measurement.
+//
+// lastActivityNano is updated atomically on every Write so the dead-replica
+// stall watchdog can observe it from another goroutine without locking.
 type streamInterceptor struct {
 	http.ResponseWriter
-	stats streamStats
-	buf   []byte // partial SSE line buffer for fragmented writes
+	stats            streamStats
+	buf              []byte // partial SSE line buffer for fragmented writes
+	lastActivityNano atomic.Int64
 }
 
 func newStreamInterceptor(w http.ResponseWriter) *streamInterceptor {
@@ -36,6 +42,7 @@ func (si *streamInterceptor) Write(b []byte) (int, error) {
 		si.stats.FirstByteAt = now
 		si.stats.Wrote = true
 	}
+	si.lastActivityNano.Store(now.UnixNano())
 
 	// Write bytes to the client first — never delay the stream.
 	n, err := si.ResponseWriter.Write(b)
@@ -45,6 +52,16 @@ func (si *streamInterceptor) Write(b []byte) (int, error) {
 	si.parseSSE(now)
 
 	return n, err
+}
+
+// LastActivity returns the timestamp of the most recent Write, or the zero
+// time if no Write has occurred. Safe to call concurrently with Write.
+func (si *streamInterceptor) LastActivity() time.Time {
+	ns := si.lastActivityNano.Load()
+	if ns == 0 {
+		return time.Time{}
+	}
+	return time.Unix(0, ns)
 }
 
 func (si *streamInterceptor) Flush() {
@@ -91,8 +108,11 @@ func (si *streamInterceptor) processEvent(event []byte, now time.Time) {
 	}
 	payload := bytes.TrimPrefix(line, []byte("data: "))
 
-	// [DONE] sentinel marks end of stream — not a token.
+	// [DONE] sentinel marks end of stream — not a token. Recording it
+	// lets the handler distinguish a clean termination from a stalled
+	// replica that stopped emitting bytes.
 	if bytes.Equal(payload, []byte("[DONE]")) {
+		si.stats.DoneSeen = true
 		return
 	}
 
