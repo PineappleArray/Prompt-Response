@@ -54,6 +54,17 @@ retry:
   max_retries: 1
   timeout: 30s
 
+# Stream: dead-replica detection on streamed responses.
+# stall_timeout: maximum gap between consecutive upstream body bytes. A stall
+#                before any byte is forwarded triggers a reroute to a different
+#                replica; a stall after streaming has begun aborts the request
+#                and records a circuit-breaker failure. Set to 0 to disable.
+# done_timeout:  optional upper bound on total stream duration without an
+#                SSE [DONE] sentinel. 0 disables the bound.
+stream:
+  stall_timeout: 15s
+  done_timeout: 0s
+
 # Authentication: API key validation for all non-health endpoints.
 # When enabled, requests must include Authorization: Bearer <key> or X-API-Key header.
 # Health endpoints (/healthz, /readyz) bypass authentication.

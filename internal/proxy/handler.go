@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/cespare/xxhash/v2"
@@ -145,8 +146,11 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	metrics.ClassifierScore.WithLabelValues(string(result.Tier)).Observe(result.Score)
 
 	// Retry loop: attempt the request on the best replica, retrying on upstream
-	// failures (5xx, connection errors) with a different replica each time.
+	// failures (5xx, connection errors, or pre-first-byte stalls indicating a
+	// dead replica) with a different replica each time.
+	requestStart := time.Now()
 	var resp *http.Response
+	var bodyReader io.Reader
 	var chosenReplica config.Replica
 	var cancelUpstream context.CancelFunc
 	excluded := make(map[string]bool)
@@ -162,6 +166,37 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		upstream, err := h.doUpstream(attemptCtx, replica, body, r)
 
 		if err == nil && upstream.StatusCode < 500 {
+			// Dead-replica detection: peek the upstream body before
+			// committing response headers to the client. If the replica
+			// accepted the request but never produces a single byte
+			// within the stall window, treat it as dead and retry on a
+			// different replica — the client never sees this attempt.
+			if stall := h.cfg.Stream.StallTimeout; stall > 0 {
+				peek := peekFirstByte(upstream.Body, stall)
+				if peek.err != nil {
+					cancel()
+					upstream.Body.Close()
+					if h.circuit != nil {
+						h.circuit.RecordFailure(replica.ID)
+					}
+					metrics.UpstreamErrorsTotal.WithLabelValues(replica.ID).Inc()
+					metrics.DeadReplicasTotal.WithLabelValues(replica.ID, "pre_first_byte").Inc()
+					excluded[replica.ID] = true
+					if attempt < maxAttempts-1 {
+						metrics.RetriesTotal.WithLabelValues(replica.ID).Inc()
+						slog.Warn("dead replica detected (no first byte), retrying",
+							"replica", replica.ID,
+							"stall_timeout", stall.String(),
+							"attempt", attempt+1,
+						)
+					}
+					continue
+				}
+				bodyReader = peek.reader
+			} else {
+				bodyReader = upstream.Body
+			}
+
 			resp = upstream
 			chosenReplica = replica
 			cancelUpstream = cancel // deferred until body is fully consumed
@@ -236,13 +271,57 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	start := time.Now()
 	sw := newStreamInterceptor(w)
-	streamBody(sw, resp.Body)
+
+	// Mid-stream stall watchdog: if the replica goes silent after streaming
+	// has begun, the connection is aborted and counted as a dead replica.
+	// Reroute is no longer possible — bytes have already reached the client —
+	// but the failure is recorded against the circuit breaker so future
+	// requests avoid this replica.
+	var midStreamStall atomic.Bool
+	var watchdog *stallWatchdog
+	if stall := h.cfg.Stream.StallTimeout; stall > 0 {
+		watchdog = newStallWatchdog(stall, sw.LastActivity, func() {
+			midStreamStall.Store(true)
+			cancelUpstream()
+		})
+	}
+	streamBody(sw, bodyReader)
+	if watchdog != nil {
+		watchdog.Stop()
+	}
 	totalDuration := time.Since(start)
 
 	stats := sw.Stats()
 	ttft := totalDuration
 	if stats.Wrote {
 		ttft = stats.FirstByteAt.Sub(start)
+	}
+
+	if midStreamStall.Load() || !stats.DoneSeen {
+		phase := "missing_done"
+		if midStreamStall.Load() {
+			phase = "mid_stream"
+		}
+		metrics.DeadReplicasTotal.WithLabelValues(chosenReplica.ID, phase).Inc()
+		if h.circuit != nil {
+			h.circuit.RecordFailure(chosenReplica.ID)
+		}
+		slog.Warn("dead replica during stream",
+			"replica", chosenReplica.ID,
+			"phase", phase,
+			"output_tokens", stats.OutputTokens,
+			"elapsed_ms", totalDuration.Milliseconds(),
+		)
+	} else {
+		// Prompt-to-terminator latency: end-to-end time from request entry
+		// (requestStart, before classification and replica selection) to
+		// the moment the SSE [DONE] sentinel is observed. Only recorded
+		// for clean completions so the distribution reflects healthy
+		// end-to-end behavior.
+		promptToDone := time.Since(requestStart)
+		metrics.PromptToDoneDuration.
+			WithLabelValues(string(result.Tier), chosenReplica.ID).
+			Observe(promptToDone.Seconds())
 	}
 
 	h.scorer.RecordHit(prefixHash, chosenReplica.ID)
@@ -330,7 +409,9 @@ func (h *Handler) doUpstream(ctx context.Context, replica config.Replica, body [
 
 // streamBody copies the upstream response body to the stream interceptor,
 // flushing after each read to ensure SSE chunks are sent to the client
-// immediately (equivalent to httputil.ReverseProxy FlushInterval=-1).
+// immediately (equivalent to httputil.ReverseProxy FlushInterval=-1). The
+// body is an io.Reader so the caller may layer a peeked-byte prefix in
+// front of the upstream response for dead-replica detection.
 func streamBody(sw *streamInterceptor, body io.Reader) {
 	buf := make([]byte, 32*1024)
 	for {

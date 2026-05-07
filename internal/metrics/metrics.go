@@ -107,6 +107,32 @@ var (
 		[]string{"replica"},
 	)
 
+	// Dead replica detections — replicas that accepted the request but failed
+	// to emit the SSE [DONE] terminator within the stall window. The phase
+	// label distinguishes pre_first_byte (no body bytes ever arrived; request
+	// was rerouted) from mid_stream (some bytes streamed but [DONE] missing;
+	// connection aborted).
+	DeadReplicasTotal = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "router_dead_replicas_total",
+			Help: "Total dead-replica detections (no terminating character)",
+		},
+		[]string{"replica", "phase"},
+	)
+
+	// Prompt-to-terminator latency: total wall-clock time from the moment
+	// the router begins handling a request until the upstream emits the SSE
+	// [DONE] sentinel. Measures end-to-end completion latency including
+	// classifier, replica selection, retries, and the full streamed body.
+	PromptToDoneDuration = promauto.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "router_prompt_to_done_seconds",
+			Help:    "Latency from prompt start to SSE [DONE] terminator",
+			Buckets: []float64{.05, .1, .25, .5, 1, 2.5, 5, 10, 30, 60, 120},
+		},
+		[]string{"tier", "replica"},
+	)
+
 	// Authentication failures by reason (missing_key, invalid_key).
 	AuthFailuresTotal = promauto.NewCounterVec(
 		prometheus.CounterOpts{

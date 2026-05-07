@@ -22,6 +22,7 @@ type Config struct {
 	RateLimit    RateLimit         `yaml:"ratelimit"`
 	Audit        Audit             `yaml:"audit"`
 	Usage        Usage             `yaml:"usage"`
+	Stream       Stream            `yaml:"stream"`
 	PrefixLen    int               `yaml:"prefix_len"`
 	AffinityTTL  time.Duration     `yaml:"affinity_ttl"`
 	Threshold    float64           `yaml:"threshold"`
@@ -105,6 +106,20 @@ type Usage struct {
 	Enabled bool `yaml:"enabled"`
 }
 
+// Stream controls dead-replica detection on streamed responses.
+//
+// stall_timeout fires when the upstream emits no body bytes for that long.
+// Before any client bytes have been forwarded the request is rerouted to a
+// different replica; after the first byte the connection is aborted and the
+// failure is recorded against the replica's circuit breaker.
+//
+// done_timeout bounds the total time a stream may run without observing the
+// SSE [DONE] sentinel — set to zero to disable the upper bound.
+type Stream struct {
+	StallTimeout time.Duration `yaml:"stall_timeout"`
+	DoneTimeout  time.Duration `yaml:"done_timeout"`
+}
+
 func Load(path string) (*Config, error) {
 	f, err := os.ReadFile(path)
 	if err != nil {
@@ -178,6 +193,12 @@ func applyDefaults(cfg *Config) {
 	if cfg.Audit.BufferSize == 0 {
 		cfg.Audit.BufferSize = 1000
 	}
+	// Stream defaults — stall_timeout must be short enough that a wedged
+	// replica is rerouted before the client gives up, but long enough that
+	// healthy small-tier latency does not trip it.
+	if cfg.Stream.StallTimeout == 0 {
+		cfg.Stream.StallTimeout = 15 * time.Second
+	}
 }
 
 func validate(cfg *Config) error {
@@ -227,6 +248,12 @@ func validate(cfg *Config) error {
 	}
 	if cfg.Circuit.MinSamples <= 0 {
 		return fmt.Errorf("circuit min_samples must be positive, got %d", cfg.Circuit.MinSamples)
+	}
+	if cfg.Stream.StallTimeout < 0 {
+		return fmt.Errorf("stream stall_timeout must be non-negative, got %v", cfg.Stream.StallTimeout)
+	}
+	if cfg.Stream.DoneTimeout < 0 {
+		return fmt.Errorf("stream done_timeout must be non-negative, got %v", cfg.Stream.DoneTimeout)
 	}
 	return nil
 }
