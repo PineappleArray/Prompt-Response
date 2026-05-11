@@ -46,20 +46,15 @@ func newTestHandler(replicas []config.Replica) *Handler {
 		},
 	}
 	scor := scorer.New(replicas, mem, poll, cfg.Weights, cfg.AffinityTTL, cfg.MaxQueue)
-	cls := classifier.NewHeuristic(classifier.HeuristicConfig{
-		Weights: classifier.SignalWeights{
-			Length: 0.20, Code: 0.30, Reasoning: 0.15,
-			Complexity: 0.10, ConvDepth: 0.10, OutputLength: 0.15,
-		},
-		Threshold: cfg.Threshold,
-	})
+	router := classifier.InitializeClassifier()
+
 	cr := circuit.NewRegistry(circuit.Config{
 		ErrorThreshold: cfg.Circuit.ErrorThreshold,
 		WindowSize:     cfg.Circuit.WindowSize,
 		Cooldown:       cfg.Circuit.Cooldown,
 		MinSamples:     cfg.Circuit.MinSamples,
 	})
-	return New(scor, cls, cfg, cr, nil, nil)
+	return New(scor, router, cfg, cr, nil, nil)
 }
 
 func TestHealthz(t *testing.T) {
@@ -520,13 +515,11 @@ func TestAuditEndpoint_WithRecords(t *testing.T) {
 		Retry:       config.Retry{MaxRetries: 1, Timeout: 30 * time.Second},
 	}
 	scor := scorer.New(replicas, mem, poll, cfg.Weights, cfg.AffinityTTL, cfg.MaxQueue)
-	cls := classifier.NewHeuristic(classifier.HeuristicConfig{
-		Weights:   classifier.SignalWeights{Length: 0.20, Code: 0.30, Reasoning: 0.15, Complexity: 0.10, ConvDepth: 0.10, OutputLength: 0.15},
-		Threshold: cfg.Threshold,
-	})
+	router := classifier.InitializeClassifier()
+
 	cr := circuit.NewRegistry(circuit.Config{ErrorThreshold: 0.5, WindowSize: 10 * time.Second, Cooldown: 30 * time.Second, MinSamples: 5})
 	trail := audit.NewTrail(100)
-	h := New(scor, cls, cfg, cr, trail, nil)
+	h := New(scor, router, cfg, cr, trail, nil)
 
 	// Make a request to generate an audit record
 	payload := `{"messages":[{"role":"user","content":"hello"}]}`
@@ -591,13 +584,11 @@ func TestAuditRecords_NoReplicas(t *testing.T) {
 		Retry:       config.Retry{MaxRetries: 1, Timeout: 30 * time.Second},
 	}
 	scor := scorer.New(replicas, mem, poll, cfg.Weights, cfg.AffinityTTL, cfg.MaxQueue)
-	cls := classifier.NewHeuristic(classifier.HeuristicConfig{
-		Weights:   classifier.SignalWeights{Length: 0.20, Code: 0.30, Reasoning: 0.15, Complexity: 0.10, ConvDepth: 0.10, OutputLength: 0.15},
-		Threshold: cfg.Threshold,
-	})
+	router := classifier.InitializeClassifier()
+
 	cr := circuit.NewRegistry(circuit.Config{ErrorThreshold: 0.5, WindowSize: 10 * time.Second, Cooldown: 30 * time.Second, MinSamples: 5})
 	trail := audit.NewTrail(100)
-	h := New(scor, cls, cfg, cr, trail, nil)
+	h := New(scor, router, cfg, cr, trail, nil)
 
 	payload := `{"messages":[{"role":"user","content":"hello"}]}`
 	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(payload))

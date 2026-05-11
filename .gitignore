@@ -7,3 +7,5 @@ vendor/
 .venv/
 __pycache__/
 *.pyc
+question.jsonl
+test/question.jsonl

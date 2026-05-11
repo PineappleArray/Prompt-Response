@@ -204,16 +204,16 @@ def health():
 
 
 # Run directly for quick testing: `python classifier_server.py`
-if __name__ == "__main__":
-    prompts = [
-        "What's the capital of France?",
-        "Write a Python function to reverse a linked list.",
-        "Prove that the sum of two odd numbers is always even.",
-        "Draft a short poem about autumn leaves.",
-    ]
-    for p in prompts:
-        r = classify_prompt(p)
-        print(f"\n{p}")
-        for k, v in r.items():
-            print(f"  {k}: {v}")
-        print(f"  -> {pick(r)}")
+#if __name__ == "__main__":
+#    prompts = [
+#        "What's the capital of France?",
+#        "Write a Python function to reverse a linked list.",
+#        "Prove that the sum of two odd numbers is always even.",
+#        "Draft a short poem about autumn leaves.",
+#    ]
+#    for p in prompts:
+#        r = classify_prompt(p)
+#        print(f"\n{p}")
+#        for k, v in r.items():
+#            print(f"  {k}: {v}")
+#        print(f"  -> {pick(r)}")

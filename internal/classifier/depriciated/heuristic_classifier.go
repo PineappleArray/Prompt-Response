@@ -1,5 +1,7 @@
 package classifier
+
 //DECRICATED
+/*
 import (
 	"fmt"
 	"math"
@@ -203,3 +205,4 @@ func defaultKeywords() KeywordSets {
 		},
 	}
 }
+*/

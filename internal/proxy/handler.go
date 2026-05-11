@@ -12,7 +12,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/cespare/xxhash/v2"
 	"prompt-response/internal/audit"
 	"prompt-response/internal/auth"
 	"prompt-response/internal/circuit"
@@ -23,6 +22,8 @@ import (
 	"prompt-response/internal/scorer"
 	"prompt-response/internal/types"
 	"prompt-response/internal/usage"
+
+	"github.com/cespare/xxhash/v2"
 )
 
 // anonymousTenant is the tenant key used for unauthenticated requests when
@@ -44,7 +45,7 @@ var hopByHop = map[string]bool{
 
 type Handler struct {
 	scorer     *scorer.Scorer
-	classifier *classifier.HeuristicClassifier
+	classifier classifier.Classifier
 	cfg        *config.Config
 	circuit    *circuit.Registry
 	audit      *audit.Trail
@@ -52,7 +53,7 @@ type Handler struct {
 	client     *http.Client
 }
 
-func New(s *scorer.Scorer, c *classifier.HeuristicClassifier, cfg *config.Config, cr *circuit.Registry, trail *audit.Trail, tracker *usage.Tracker) *Handler {
+func New(s *scorer.Scorer, c classifier.Classifier, cfg *config.Config, cr *circuit.Registry, trail *audit.Trail, tracker *usage.Tracker) *Handler {
 	return &Handler{
 		scorer:     s,
 		classifier: c,
@@ -137,10 +138,22 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		HasCode:      hasCodeBlock(userMessage),
 		ConvTurns:    countTurns(req),
 	}
-	result, err := h.classifier.Classify(classReq)
+
+	classResult, err := h.classifier.Classify(r.Context(), classReq)
 	if err != nil {
 		slog.Error("classification failed, defaulting to small", "err", err)
-		result = classifier.Response{Tier: types.TierSmall, Reason: "classification error fallback"}
+		classResult = &classifier.ClassifyResponse{
+			Tier:        types.ModelTier(types.TierSmall),
+			BuildReason: "classification error fallback",
+		}
+	}
+
+	// map to the fields the rest of the handler uses
+	result := classifier.Response{
+		Tier:    classResult.Tier,
+		Score:   classResult.Score,
+		Signals: classResult.Signals,
+		Reason:  classResult.BuildReason,
 	}
 
 	metrics.ClassifierScore.WithLabelValues(string(result.Tier)).Observe(result.Score)

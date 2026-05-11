@@ -1,5 +1,6 @@
 package classifier
 
+/*
 import (
 	"bytes"
 	"context"
@@ -248,3 +249,4 @@ func keywordScore(text string, needles []string) float64 {
 	}
 	return score
 }
+*/

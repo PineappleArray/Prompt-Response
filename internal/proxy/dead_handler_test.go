@@ -53,20 +53,15 @@ func newDeadDetectHandler(replicas []config.Replica, stallTimeout time.Duration)
 		},
 	}
 	scor := scorer.New(replicas, mem, poll, cfg.Weights, cfg.AffinityTTL, cfg.MaxQueue)
-	cls := classifier.NewHeuristic(classifier.HeuristicConfig{
-		Weights: classifier.SignalWeights{
-			Length: 0.20, Code: 0.30, Reasoning: 0.15,
-			Complexity: 0.10, ConvDepth: 0.10, OutputLength: 0.15,
-		},
-		Threshold: cfg.Threshold,
-	})
+	router := classifier.InitializeClassifier()
+
 	cr := circuit.NewRegistry(circuit.Config{
 		ErrorThreshold: cfg.Circuit.ErrorThreshold,
 		WindowSize:     cfg.Circuit.WindowSize,
 		Cooldown:       cfg.Circuit.Cooldown,
 		MinSamples:     cfg.Circuit.MinSamples,
 	})
-	return New(scor, cls, cfg, cr, nil, nil)
+	return New(scor, router, cfg, cr, nil, nil)
 }
 
 // streamingBackend builds an httptest server that emits the given tokens with

@@ -3,10 +3,11 @@ package types
 type ModelTier string
 
 const (
-	TierSmall  ModelTier = "small"
-	TierMedium ModelTier = "medium"
-	TierLarge  ModelTier = "large"
-	TierCode   ModelTier = "code"
+	TierSmall     ModelTier = "small"
+	TierMedium    ModelTier = "medium"
+	TierLarge     ModelTier = "large"
+	TierCode      ModelTier = "code"
+	TierReasoning ModelTier = "reasoning"
 )
 
 func ValidTier(t ModelTier) bool {

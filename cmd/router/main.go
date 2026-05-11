@@ -85,7 +85,9 @@ func main() {
 		cfg.MaxQueue,
 	)
 
-	cls := classifier.NewHeuristic(classifier.HeuristicConfig{
+	router := classifier.InitializeClassifier()
+
+	/*cls := router.NewHeuristic(classifier.HeuristicConfig{
 		Weights: classifier.SignalWeights{
 			Length:       cfg.Classifier.Length,
 			Code:         cfg.Classifier.Code,
@@ -95,7 +97,7 @@ func main() {
 			OutputLength: cfg.Classifier.OutputLength,
 		},
 		Threshold: cfg.Threshold,
-	})
+	})*/
 
 	cb := circuit.NewRegistry(circuit.Config{
 		ErrorThreshold: cfg.Circuit.ErrorThreshold,
@@ -122,7 +124,7 @@ func main() {
 		slog.Info("per-tenant token usage tracking enabled")
 	}
 
-	handler := proxy.New(scor, cls, cfg, cb, trail, tracker)
+	handler := proxy.New(scor, router, cfg, cb, trail, tracker)
 
 	// Build middleware chain: inner → timeout → body limit → [ratelimit] → [auth] → request ID
 	var inner http.Handler = middleware.RequestTimeout(30*time.Second,

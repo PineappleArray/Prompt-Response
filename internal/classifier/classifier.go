@@ -1,10 +1,9 @@
 package classifier
 
-import "prompt-response/internal/types"
-
-type Classifier interface {
-	Classify(req Request) (Response, error)
-}
+import (
+	"context"
+	"prompt-response/internal/types"
+)
 
 type Request struct {
 	SystemPrompt string // extracted from messages[role=system]
@@ -19,4 +18,8 @@ type Response struct {
 	Score   float64            // raw composite score 0–1
 	Signals map[string]float64 // per-signal breakdown
 	Reason  string             // human-readable explanation
+}
+
+type Classifier interface {
+	Classify(ctx context.Context, req Request) (*ClassifyResponse, error)
 }

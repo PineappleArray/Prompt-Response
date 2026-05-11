@@ -1,5 +1,6 @@
 package classifier
 
+/*
 import "testing"
 
 func BenchmarkClassify_Simple(b *testing.B) {
@@ -25,3 +26,4 @@ func BenchmarkClassify_Complex(b *testing.B) {
 		c.Classify(req)
 	}
 }
+*/

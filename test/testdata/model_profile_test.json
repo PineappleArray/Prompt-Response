@@ -1,0 +1,48 @@
+{
+  "models": {
+    "small": {
+      "name": "qwen2.5-1.5B-instruct-awq",
+      "params_b": 1.5,
+      "quantization": "int4",
+      "bytes_per_param": 0.5,
+      "vram_weights_gb": 0.75,
+      "kv_cache_per_token_mb": 0.04,
+      "prefill_tps": 8000,
+      "decode_tps": 200,
+      "max_concurrent": 64
+    },
+    "code": {
+      "name": "qwen2.5-coder-7b-instruct-awq",
+      "params_b": 7,
+      "quantization": "int4",
+      "bytes_per_param": 0.5,
+      "vram_weights_gb": 3.5,
+      "kv_cache_per_token_mb": 0.1,
+      "prefill_tps": 3000,
+      "decode_tps": 100,
+      "max_concurrent": 16
+    },
+    "reasoning": {
+      "name": "qwen2.5-7B-instruct-awq",
+      "params_b": 7,
+      "quantization": "int4",
+      "bytes_per_param": 0.5,
+      "vram_weights_gb": 3.5,
+      "kv_cache_per_token_mb": 0.1,
+      "prefill_tps": 3000,
+      "decode_tps": 100,
+      "max_concurrent": 16
+    },
+    "large": {
+      "name": "qwen2.5-72b-instruct",
+      "params_b": 72,
+      "quantization": "fp16",
+      "bytes_per_param": 2,
+      "vram_weights_gb": 144,
+      "kv_cache_per_token_mb": 0.8,
+      "prefill_tps": 800,
+      "decode_tps": 30,
+      "max_concurrent": 4
+    }
+  }
+}

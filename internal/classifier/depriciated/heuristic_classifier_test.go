@@ -1,5 +1,6 @@
 package classifier
 
+/*
 //DECRICATED
 
 import (
@@ -108,3 +109,4 @@ func TestClassifySignalsPresent(t *testing.T) {
 		}
 	}
 }
+*/
