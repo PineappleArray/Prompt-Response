@@ -6,13 +6,14 @@ Routes OpenAI-compatible requests to vLLM replicas by classifying request comple
 
 ## Benchmark
 
+```
   MT-Benchmark Routing Metrics
-====================================
+════════════════════════════════════
   Total Prompts: 80
   Successfully Classified: 80
   Correct Classification: 63/80 (78.8%)
   Avg Latency: 707ms
-====================================
+════════════════════════════════════
 
   Avg Amount Saved Thru Routing
 ══════════════════════════════════════════════════════
@@ -27,6 +28,7 @@ Routing distribution:
   qwen2.5-coder-7b-instruct-awq      11  (13.8%)
   qwen2.5-72b-instruct                4  ( 5.0%)
 ══════════════════════════════════════════════════════
+```
 
 ## Architecture
 
