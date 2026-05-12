@@ -11,4 +11,9 @@ class Resp(BaseModel):
     complexity: float
 
 class Req(BaseModel):
-    prompt: str
+    prompt: str = ""              # kept for backward compat
+    system_prompt: str = ""
+    user_message: str = ""
+    token_count: int = 0
+    has_code: bool = False
+    conv_turns: int = 0

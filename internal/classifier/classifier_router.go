@@ -34,6 +34,21 @@ type Router struct {
 	httpClient *http.Client
 }
 
+type Request struct {
+	SystemPrompt string `json:"system_prompt"`
+	UserMessage  string `json:"user_message"`
+	TokenCount   int    `json:"token_count"`
+	HasCode      bool   `json:"has_code"`
+	ConvTurns    int    `json:"conv_turns"`
+}
+
+type Response struct {
+	Tier    types.ModelTier    // routing decision
+	Score   float64            // raw composite score 0–1
+	Signals map[string]float64 // per-signal breakdown
+	Reason  string             // human-readable explanation
+}
+
 // NewRouter creates a Router with a configurable endpoint.
 // Use this in tests and when the endpoint comes from config.
 func NewRouter(endpoint string) *Router {
