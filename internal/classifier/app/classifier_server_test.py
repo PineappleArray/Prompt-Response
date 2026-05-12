@@ -2,7 +2,7 @@ import json
 from datasets import load_dataset
 from transformers import AutoTokenizer
 from collections import Counter
-import internal.classifier.app.classifier_server as classifier_server
+import classifier_server as classifier_server
 
 # Model identifiers
 SMALL     = "qwen2.5-1.5B-instruct-awq"   

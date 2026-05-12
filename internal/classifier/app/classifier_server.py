@@ -8,6 +8,7 @@ from transformers import AutoConfig, AutoModel, AutoTokenizer
 from huggingface_hub import hf_hub_download
 import json
 from safetensors.torch import load_file
+import models as model
 
 CODE_SIGNALS = {"html", "css", "javascript", "python", "code",  #Made as the current model used to fit will sometimes
                 "function", "script", "api", "sql", "regex",    #miss some of the coding prompts
@@ -173,34 +174,6 @@ def smart_truncate(text, max_length=512):
 
 
 app = FastAPI()
-
-
-class Req(BaseModel):
-    prompt: str
-
-
-class Resp(BaseModel):
-    model: str
-    task_type: str
-    reasoning: float
-    complexity: float
-
-
-@app.post("/classify", response_model=Resp)
-def classify(req: Req):
-    text = req.prompt
-    r = classify_prompt(req.prompt)
-    return Resp(
-        model=pick(r, text),
-        task_type=r["task_type"],
-        reasoning=r.get("reasoning", 0.0),
-        complexity=r.get("prompt_complexity_score", 0.0),
-    )
-
-
-@app.get("/health")
-def health():
-    return {"ok": True}
 
 
 # Run directly for quick testing: `python classifier_server.py`

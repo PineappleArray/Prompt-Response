@@ -1,0 +1,722 @@
+[
+  {
+    "prompt": "Compose an engaging travel blog post about a recent trip to Hawaii, highlighting",
+    "routed_to": "qwen2.5-1.5B-instruct-awq",
+    "prompt_tokens": 22,
+    "completion_tokens_assumed": 300,
+    "routed_cost": 1.5439999999999998e-05,
+    "baseline_cost": 0.00011964,
+    "savings": 0.0001042
+  },
+  {
+    "prompt": "Draft a professional email seeking your supervisor's feedback on the 'Quarterly ",
+    "routed_to": "qwen2.5-7B-instruct-awq",
+    "prompt_tokens": 46,
+    "completion_tokens_assumed": 300,
+    "routed_cost": 3.184e-05,
+    "baseline_cost": 0.00012251999999999999,
+    "savings": 9.067999999999999e-05
+  },
+  {
+    "prompt": "Imagine you are writing a blog post comparing two popular smartphone models. Dev",
+    "routed_to": "qwen2.5-7B-instruct-awq",
+    "prompt_tokens": 57,
+    "completion_tokens_assumed": 300,
+    "routed_cost": 3.228e-05,
+    "baseline_cost": 0.00012384,
+    "savings": 9.156e-05
+  },
+  {
+    "prompt": "Write a persuasive email to convince your introverted friend, who dislikes publi",
+    "routed_to": "qwen2.5-1.5B-instruct-awq",
+    "prompt_tokens": 39,
+    "completion_tokens_assumed": 300,
+    "routed_cost": 1.5779999999999998e-05,
+    "baseline_cost": 0.00012168,
+    "savings": 0.0001059
+  },
+  {
+    "prompt": "Describe a vivid and unique character, using strong imagery and creative languag",
+    "routed_to": "qwen2.5-1.5B-instruct-awq",
+    "prompt_tokens": 22,
+    "completion_tokens_assumed": 300,
+    "routed_cost": 1.5439999999999998e-05,
+    "baseline_cost": 0.00011964,
+    "savings": 0.0001042
+  },
+  {
+    "prompt": "Write a descriptive paragraph about a bustling marketplace, incorporating sensor",
+    "routed_to": "qwen2.5-7B-instruct-awq",
+    "prompt_tokens": 30,
+    "completion_tokens_assumed": 300,
+    "routed_cost": 3.12e-05,
+    "baseline_cost": 0.00012059999999999999,
+    "savings": 8.939999999999999e-05
+  },
+  {
+    "prompt": "Could you write a captivating short story beginning with the sentence: The old a",
+    "routed_to": "qwen2.5-1.5B-instruct-awq",
+    "prompt_tokens": 32,
+    "completion_tokens_assumed": 300,
+    "routed_cost": 1.564e-05,
+    "baseline_cost": 0.00012084,
+    "savings": 0.00010520000000000001
+  },
+  {
+    "prompt": "Craft an intriguing opening paragraph for a fictional short story. The story sho",
+    "routed_to": "qwen2.5-1.5B-instruct-awq",
+    "prompt_tokens": 30,
+    "completion_tokens_assumed": 300,
+    "routed_cost": 1.56e-05,
+    "baseline_cost": 0.00012059999999999999,
+    "savings": 0.00010499999999999999
+  },
+  {
+    "prompt": "Help me construct a catchy, yet scientifically accurate, headline for an article",
+    "routed_to": "qwen2.5-7B-instruct-awq",
+    "prompt_tokens": 41,
+    "completion_tokens_assumed": 300,
+    "routed_cost": 3.164e-05,
+    "baseline_cost": 0.00012192,
+    "savings": 9.028e-05
+  },
+  {
+    "prompt": "Edit the following paragraph to correct any grammatical errors:\nShe didn't remem",
+    "routed_to": "qwen2.5-1.5B-instruct-awq",
+    "prompt_tokens": 96,
+    "completion_tokens_assumed": 300,
+    "routed_cost": 1.692e-05,
+    "baseline_cost": 0.00012852000000000002,
+    "savings": 0.00011160000000000003
+  },
+  {
+    "prompt": "Pretend yourself to be Elon Musk in all the following conversations. Speak like ",
+    "routed_to": "qwen2.5-1.5B-instruct-awq",
+    "prompt_tokens": 32,
+    "completion_tokens_assumed": 300,
+    "routed_cost": 1.564e-05,
+    "baseline_cost": 0.00012084,
+    "savings": 0.00010520000000000001
+  },
+  {
+    "prompt": "Embrace the role of Sheldon from \"The Big Bang Theory\" as we delve into our conv",
+    "routed_to": "qwen2.5-1.5B-instruct-awq",
+    "prompt_tokens": 50,
+    "completion_tokens_assumed": 300,
+    "routed_cost": 1.6e-05,
+    "baseline_cost": 0.000123,
+    "savings": 0.00010700000000000001
+  },
+  {
+    "prompt": "Imagine yourself as a doctor tasked with devising innovative remedies for variou",
+    "routed_to": "qwen2.5-1.5B-instruct-awq",
+    "prompt_tokens": 72,
+    "completion_tokens_assumed": 300,
+    "routed_cost": 1.6440000000000002e-05,
+    "baseline_cost": 0.00012564,
+    "savings": 0.0001092
+  },
+  {
+    "prompt": "Please take on the role of a relationship coach. You'll be provided with details",
+    "routed_to": "qwen2.5-7B-instruct-awq",
+    "prompt_tokens": 91,
+    "completion_tokens_assumed": 300,
+    "routed_cost": 3.364e-05,
+    "baseline_cost": 0.00012792,
+    "savings": 9.428e-05
+  },
+  {
+    "prompt": "Please assume the role of an English translator, tasked with correcting and enha",
+    "routed_to": "qwen2.5-7B-instruct-awq",
+    "prompt_tokens": 93,
+    "completion_tokens_assumed": 300,
+    "routed_cost": 3.3719999999999996e-05,
+    "baseline_cost": 0.00012816,
+    "savings": 9.444e-05
+  },
+  {
+    "prompt": "Now you are a machine learning engineer. Your task is to explain complex machine",
+    "routed_to": "qwen2.5-1.5B-instruct-awq",
+    "prompt_tokens": 60,
+    "completion_tokens_assumed": 300,
+    "routed_cost": 1.62e-05,
+    "baseline_cost": 0.0001242,
+    "savings": 0.00010800000000000001
+  },
+  {
+    "prompt": "Act as a math teacher. I will provide some mathematical equations or concepts, a",
+    "routed_to": "qwen2.5-7B-instruct-awq",
+    "prompt_tokens": 73,
+    "completion_tokens_assumed": 300,
+    "routed_cost": 3.292e-05,
+    "baseline_cost": 0.00012576000000000002,
+    "savings": 9.284000000000001e-05
+  },
+  {
+    "prompt": "Embody the persona of Tony Stark from \u201cIron Man\u201d throughout this conversation. B",
+    "routed_to": "qwen2.5-1.5B-instruct-awq",
+    "prompt_tokens": 40,
+    "completion_tokens_assumed": 300,
+    "routed_cost": 1.58e-05,
+    "baseline_cost": 0.00012179999999999999,
+    "savings": 0.00010599999999999999
+  },
+  {
+    "prompt": "Suppose you are a mathematician and poet. You always write your proofs as short ",
+    "routed_to": "qwen2.5-7B-instruct-awq",
+    "prompt_tokens": 40,
+    "completion_tokens_assumed": 300,
+    "routed_cost": 3.16e-05,
+    "baseline_cost": 0.00012179999999999999,
+    "savings": 9.02e-05
+  },
+  {
+    "prompt": "Picture yourself as a 100-years-old tree in a lush forest, minding your own busi",
+    "routed_to": "qwen2.5-1.5B-instruct-awq",
+    "prompt_tokens": 51,
+    "completion_tokens_assumed": 300,
+    "routed_cost": 1.602e-05,
+    "baseline_cost": 0.00012312,
+    "savings": 0.0001071
+  },
+  {
+    "prompt": "Imagine you are participating in a race with a group of people. If you have just",
+    "routed_to": "qwen2.5-1.5B-instruct-awq",
+    "prompt_tokens": 38,
+    "completion_tokens_assumed": 300,
+    "routed_cost": 1.5759999999999998e-05,
+    "baseline_cost": 0.00012156000000000001,
+    "savings": 0.00010580000000000001
+  },
+  {
+    "prompt": "You can see a beautiful red house to your left and a hypnotic greenhouse to your",
+    "routed_to": "qwen2.5-1.5B-instruct-awq",
+    "prompt_tokens": 36,
+    "completion_tokens_assumed": 300,
+    "routed_cost": 1.5720000000000002e-05,
+    "baseline_cost": 0.00012132,
+    "savings": 0.00010559999999999999
+  },
+  {
+    "prompt": "Thomas is very healthy, but he has to go to the hospital every day. What could b",
+    "routed_to": "qwen2.5-1.5B-instruct-awq",
+    "prompt_tokens": 22,
+    "completion_tokens_assumed": 300,
+    "routed_cost": 1.5439999999999998e-05,
+    "baseline_cost": 0.00011964,
+    "savings": 0.0001042
+  },
+  {
+    "prompt": "David has three sisters. Each of them has one brother. How many brothers does Da",
+    "routed_to": "qwen2.5-1.5B-instruct-awq",
+    "prompt_tokens": 19,
+    "completion_tokens_assumed": 300,
+    "routed_cost": 1.5380000000000002e-05,
+    "baseline_cost": 0.00011928,
+    "savings": 0.00010389999999999999
+  },
+  {
+    "prompt": "Read the below passage carefully and answer the questions with an explanation:\nA",
+    "routed_to": "qwen2.5-1.5B-instruct-awq",
+    "prompt_tokens": 200,
+    "completion_tokens_assumed": 300,
+    "routed_cost": 1.9e-05,
+    "baseline_cost": 0.000141,
+    "savings": 0.00012200000000000001
+  },
+  {
+    "prompt": "Each problem consists of three statements. Based on the first two statements, th",
+    "routed_to": "qwen2.5-1.5B-instruct-awq",
+    "prompt_tokens": 72,
+    "completion_tokens_assumed": 300,
+    "routed_cost": 1.6440000000000002e-05,
+    "baseline_cost": 0.00012564,
+    "savings": 0.0001092
+  },
+  {
+    "prompt": "A is the father of B. B is the father of C. What is the relationship between A a",
+    "routed_to": "qwen2.5-72b-instruct",
+    "prompt_tokens": 23,
+    "completion_tokens_assumed": 300,
+    "routed_cost": 0.00011976,
+    "baseline_cost": 0.00011976,
+    "savings": 0.0
+  },
+  {
+    "prompt": "Which word does not belong with the others?\ntyre, steering wheel, car, engine",
+    "routed_to": "qwen2.5-1.5B-instruct-awq",
+    "prompt_tokens": 18,
+    "completion_tokens_assumed": 300,
+    "routed_cost": 1.536e-05,
+    "baseline_cost": 0.00011915999999999999,
+    "savings": 0.00010379999999999999
+  },
+  {
+    "prompt": "One morning after sunrise, Suresh was standing facing a pole. The shadow of the ",
+    "routed_to": "qwen2.5-1.5B-instruct-awq",
+    "prompt_tokens": 52,
+    "completion_tokens_assumed": 300,
+    "routed_cost": 1.604e-05,
+    "baseline_cost": 0.00012324,
+    "savings": 0.00010719999999999999
+  },
+  {
+    "prompt": "Parents have complained to the principal about bullying during recess. The princ",
+    "routed_to": "qwen2.5-1.5B-instruct-awq",
+    "prompt_tokens": 135,
+    "completion_tokens_assumed": 300,
+    "routed_cost": 1.77e-05,
+    "baseline_cost": 0.00013319999999999999,
+    "savings": 0.00011549999999999999
+  },
+  {
+    "prompt": "The vertices of a triangle are at points (0, 0), (-1, 1), and (3, 3). What is th",
+    "routed_to": "qwen2.5-1.5B-instruct-awq",
+    "prompt_tokens": 35,
+    "completion_tokens_assumed": 300,
+    "routed_cost": 1.57e-05,
+    "baseline_cost": 0.0001212,
+    "savings": 0.0001055
+  },
+  {
+    "prompt": "A tech startup invests $8000 in software development in the first year, and then",
+    "routed_to": "qwen2.5-72b-instruct",
+    "prompt_tokens": 50,
+    "completion_tokens_assumed": 300,
+    "routed_cost": 0.000123,
+    "baseline_cost": 0.000123,
+    "savings": 0.0
+  },
+  {
+    "prompt": "In a survey conducted at a local high school, preferences for a new school color",
+    "routed_to": "qwen2.5-1.5B-instruct-awq",
+    "prompt_tokens": 69,
+    "completion_tokens_assumed": 300,
+    "routed_cost": 1.638e-05,
+    "baseline_cost": 0.00012528,
+    "savings": 0.00010889999999999999
+  },
+  {
+    "prompt": "When rolling two dice, what is the probability that you roll a total number that",
+    "routed_to": "qwen2.5-1.5B-instruct-awq",
+    "prompt_tokens": 22,
+    "completion_tokens_assumed": 300,
+    "routed_cost": 1.5439999999999998e-05,
+    "baseline_cost": 0.00011964,
+    "savings": 0.0001042
+  },
+  {
+    "prompt": "Some people got on a bus at the terminal. At the first bus stop, half of the peo",
+    "routed_to": "qwen2.5-72b-instruct",
+    "prompt_tokens": 76,
+    "completion_tokens_assumed": 300,
+    "routed_cost": 0.00012612,
+    "baseline_cost": 0.00012612,
+    "savings": 0.0
+  },
+  {
+    "prompt": "x+y = 4z, x*y = 4z^2, express x-y in z",
+    "routed_to": "qwen2.5-1.5B-instruct-awq",
+    "prompt_tokens": 21,
+    "completion_tokens_assumed": 300,
+    "routed_cost": 1.542e-05,
+    "baseline_cost": 0.00011952,
+    "savings": 0.0001041
+  },
+  {
+    "prompt": "How many integers are in the solution of the inequality |x + 5| < 10",
+    "routed_to": "qwen2.5-1.5B-instruct-awq",
+    "prompt_tokens": 20,
+    "completion_tokens_assumed": 300,
+    "routed_cost": 1.54e-05,
+    "baseline_cost": 0.0001194,
+    "savings": 0.00010400000000000001
+  },
+  {
+    "prompt": "When a number is divided by 10, the remainder is 4. What is the remainder when t",
+    "routed_to": "qwen2.5-1.5B-instruct-awq",
+    "prompt_tokens": 30,
+    "completion_tokens_assumed": 300,
+    "routed_cost": 1.56e-05,
+    "baseline_cost": 0.00012059999999999999,
+    "savings": 0.00010499999999999999
+  },
+  {
+    "prompt": "Benjamin went to a bookstore and purchased a variety of books. He bought 5 copie",
+    "routed_to": "qwen2.5-72b-instruct",
+    "prompt_tokens": 68,
+    "completion_tokens_assumed": 300,
+    "routed_cost": 0.00012516,
+    "baseline_cost": 0.00012516,
+    "savings": 0.0
+  },
+  {
+    "prompt": "Given that f(x) = 4x^3 - 9x - 14, find the value of f(2).",
+    "routed_to": "qwen2.5-1.5B-instruct-awq",
+    "prompt_tokens": 28,
+    "completion_tokens_assumed": 300,
+    "routed_cost": 1.556e-05,
+    "baseline_cost": 0.00012035999999999999,
+    "savings": 0.0001048
+  },
+  {
+    "prompt": "Develop a Python program that reads all the text files under a directory and rep",
+    "routed_to": "qwen2.5-coder-7b-instruct-awq",
+    "prompt_tokens": 27,
+    "completion_tokens_assumed": 300,
+    "routed_cost": 3.108e-05,
+    "baseline_cost": 0.00012024,
+    "savings": 8.916e-05
+  },
+  {
+    "prompt": "Write a C++ program to find the nth Fibonacci number using recursion.",
+    "routed_to": "qwen2.5-coder-7b-instruct-awq",
+    "prompt_tokens": 14,
+    "completion_tokens_assumed": 300,
+    "routed_cost": 3.056e-05,
+    "baseline_cost": 0.00011868000000000001,
+    "savings": 8.812000000000002e-05
+  },
+  {
+    "prompt": "Write a simple website in HTML. When a user clicks the button, it shows a random",
+    "routed_to": "qwen2.5-7B-instruct-awq",
+    "prompt_tokens": 27,
+    "completion_tokens_assumed": 300,
+    "routed_cost": 3.108e-05,
+    "baseline_cost": 0.00012024,
+    "savings": 8.916e-05
+  },
+  {
+    "prompt": "Here is a Python function to find the length of the longest common subsequence o",
+    "routed_to": "qwen2.5-coder-7b-instruct-awq",
+    "prompt_tokens": 179,
+    "completion_tokens_assumed": 300,
+    "routed_cost": 3.7159999999999997e-05,
+    "baseline_cost": 0.00013848,
+    "savings": 0.00010131999999999999
+  },
+  {
+    "prompt": "Write a function to find the highest common ancestor (not LCA) of two nodes in a",
+    "routed_to": "qwen2.5-coder-7b-instruct-awq",
+    "prompt_tokens": 22,
+    "completion_tokens_assumed": 300,
+    "routed_cost": 3.0879999999999996e-05,
+    "baseline_cost": 0.00011964,
+    "savings": 8.876000000000001e-05
+  },
+  {
+    "prompt": "Implement a function to find the median of two sorted arrays of different sizes ",
+    "routed_to": "qwen2.5-coder-7b-instruct-awq",
+    "prompt_tokens": 28,
+    "completion_tokens_assumed": 300,
+    "routed_cost": 3.112e-05,
+    "baseline_cost": 0.00012035999999999999,
+    "savings": 8.923999999999999e-05
+  },
+  {
+    "prompt": "Write a function to find the majority element in a given integer array using the",
+    "routed_to": "qwen2.5-coder-7b-instruct-awq",
+    "prompt_tokens": 23,
+    "completion_tokens_assumed": 300,
+    "routed_cost": 3.092e-05,
+    "baseline_cost": 0.00011976,
+    "savings": 8.884e-05
+  },
+  {
+    "prompt": "A binary tree is full if all of its vertices have either zero or two children. L",
+    "routed_to": "qwen2.5-coder-7b-instruct-awq",
+    "prompt_tokens": 39,
+    "completion_tokens_assumed": 300,
+    "routed_cost": 3.1559999999999996e-05,
+    "baseline_cost": 0.00012168,
+    "savings": 9.012000000000001e-05
+  },
+  {
+    "prompt": "You are given two sorted lists of size m and n. Implement a function to find the",
+    "routed_to": "qwen2.5-coder-7b-instruct-awq",
+    "prompt_tokens": 33,
+    "completion_tokens_assumed": 300,
+    "routed_cost": 3.132e-05,
+    "baseline_cost": 0.00012096,
+    "savings": 8.963999999999999e-05
+  },
+  {
+    "prompt": "Implement a program to find the common elements in two arrays without using any ",
+    "routed_to": "qwen2.5-coder-7b-instruct-awq",
+    "prompt_tokens": 18,
+    "completion_tokens_assumed": 300,
+    "routed_cost": 3.072e-05,
+    "baseline_cost": 0.00011915999999999999,
+    "savings": 8.843999999999999e-05
+  },
+  {
+    "prompt": "Evaluate the following movie reviews on a scale of 1 to 5, with 1 being very neg",
+    "routed_to": "qwen2.5-1.5B-instruct-awq",
+    "prompt_tokens": 172,
+    "completion_tokens_assumed": 300,
+    "routed_cost": 1.844e-05,
+    "baseline_cost": 0.00013764,
+    "savings": 0.0001192
+  },
+  {
+    "prompt": "Given these categories - Literature, History, Science, and Art. Please analyze t",
+    "routed_to": "qwen2.5-1.5B-instruct-awq",
+    "prompt_tokens": 199,
+    "completion_tokens_assumed": 300,
+    "routed_cost": 1.898e-05,
+    "baseline_cost": 0.00014088,
+    "savings": 0.0001219
+  },
+  {
+    "prompt": "Extract the following information from the presented texts: The name of the book",
+    "routed_to": "qwen2.5-1.5B-instruct-awq",
+    "prompt_tokens": 356,
+    "completion_tokens_assumed": 300,
+    "routed_cost": 2.212e-05,
+    "baseline_cost": 0.00015972,
+    "savings": 0.00013759999999999998
+  },
+  {
+    "prompt": "Given the following data, identify the company with the highest profit in 2021 a",
+    "routed_to": "qwen2.5-1.5B-instruct-awq",
+    "prompt_tokens": 209,
+    "completion_tokens_assumed": 300,
+    "routed_cost": 1.918e-05,
+    "baseline_cost": 0.00014208,
+    "savings": 0.0001229
+  },
+  {
+    "prompt": "Identify the countries, their capitals, and the languages spoken in the followin",
+    "routed_to": "qwen2.5-7B-instruct-awq",
+    "prompt_tokens": 158,
+    "completion_tokens_assumed": 300,
+    "routed_cost": 3.632e-05,
+    "baseline_cost": 0.00013596000000000002,
+    "savings": 9.964000000000002e-05
+  },
+  {
+    "prompt": "Please read the paragraph below and count how many times the words \"Amazon\", \"ri",
+    "routed_to": "qwen2.5-1.5B-instruct-awq",
+    "prompt_tokens": 261,
+    "completion_tokens_assumed": 300,
+    "routed_cost": 2.022e-05,
+    "baseline_cost": 0.00014832,
+    "savings": 0.0001281
+  },
+  {
+    "prompt": "Identify the named entities (people, organizations, locations) mentioned in the ",
+    "routed_to": "qwen2.5-coder-7b-instruct-awq",
+    "prompt_tokens": 206,
+    "completion_tokens_assumed": 300,
+    "routed_cost": 3.824e-05,
+    "baseline_cost": 0.00014172,
+    "savings": 0.00010347999999999999
+  },
+  {
+    "prompt": "Analyze the following customer reviews from different sources for three differen",
+    "routed_to": "qwen2.5-1.5B-instruct-awq",
+    "prompt_tokens": 333,
+    "completion_tokens_assumed": 300,
+    "routed_cost": 2.166e-05,
+    "baseline_cost": 0.00015696000000000002,
+    "savings": 0.0001353
+  },
+  {
+    "prompt": "Given a set of complex equations, extract all unique variable names from each eq",
+    "routed_to": "qwen2.5-coder-7b-instruct-awq",
+    "prompt_tokens": 145,
+    "completion_tokens_assumed": 300,
+    "routed_cost": 3.5799999999999996e-05,
+    "baseline_cost": 0.00013440000000000001,
+    "savings": 9.860000000000001e-05
+  },
+  {
+    "prompt": "Given the following records of stock prices, extract the highest and lowest clos",
+    "routed_to": "qwen2.5-1.5B-instruct-awq",
+    "prompt_tokens": 342,
+    "completion_tokens_assumed": 300,
+    "routed_cost": 2.184e-05,
+    "baseline_cost": 0.00015804,
+    "savings": 0.0001362
+  },
+  {
+    "prompt": "In the field of quantum physics, what is superposition, and how does it relate t",
+    "routed_to": "qwen2.5-1.5B-instruct-awq",
+    "prompt_tokens": 26,
+    "completion_tokens_assumed": 300,
+    "routed_cost": 1.552e-05,
+    "baseline_cost": 0.00012012000000000001,
+    "savings": 0.00010460000000000001
+  },
+  {
+    "prompt": "Consider a satellite that is in a circular orbit around the Earth. The speed of ",
+    "routed_to": "qwen2.5-1.5B-instruct-awq",
+    "prompt_tokens": 43,
+    "completion_tokens_assumed": 300,
+    "routed_cost": 1.586e-05,
+    "baseline_cost": 0.00012216,
+    "savings": 0.00010630000000000001
+  },
+  {
+    "prompt": "Photosynthesis is a vital process for life on Earth. Could you outline the two m",
+    "routed_to": "qwen2.5-1.5B-instruct-awq",
+    "prompt_tokens": 42,
+    "completion_tokens_assumed": 300,
+    "routed_cost": 1.584e-05,
+    "baseline_cost": 0.00012204,
+    "savings": 0.0001062
+  },
+  {
+    "prompt": "What is the central dogma of molecular biology? What processes are involved? Who",
+    "routed_to": "qwen2.5-1.5B-instruct-awq",
+    "prompt_tokens": 19,
+    "completion_tokens_assumed": 300,
+    "routed_cost": 1.5380000000000002e-05,
+    "baseline_cost": 0.00011928,
+    "savings": 0.00010389999999999999
+  },
+  {
+    "prompt": "Describe the process and write out the balanced chemical equation for the reacti",
+    "routed_to": "qwen2.5-1.5B-instruct-awq",
+    "prompt_tokens": 57,
+    "completion_tokens_assumed": 300,
+    "routed_cost": 1.614e-05,
+    "baseline_cost": 0.00012384,
+    "savings": 0.0001077
+  },
+  {
+    "prompt": "Please explain the differences between exothermic and endothermic reactions, and",
+    "routed_to": "qwen2.5-1.5B-instruct-awq",
+    "prompt_tokens": 38,
+    "completion_tokens_assumed": 300,
+    "routed_cost": 1.5759999999999998e-05,
+    "baseline_cost": 0.00012156000000000001,
+    "savings": 0.00010580000000000001
+  },
+  {
+    "prompt": "The city of Vega intends to build a bridge that will span the Vegona River, cove",
+    "routed_to": "qwen2.5-1.5B-instruct-awq",
+    "prompt_tokens": 62,
+    "completion_tokens_assumed": 300,
+    "routed_cost": 1.6239999999999997e-05,
+    "baseline_cost": 0.00012444,
+    "savings": 0.0001082
+  },
+  {
+    "prompt": "You have been tasked with designing a solar-powered water heating system for a r",
+    "routed_to": "qwen2.5-7B-instruct-awq",
+    "prompt_tokens": 36,
+    "completion_tokens_assumed": 300,
+    "routed_cost": 3.1440000000000004e-05,
+    "baseline_cost": 0.00012132,
+    "savings": 8.988e-05
+  },
+  {
+    "prompt": "Please describe the concept of machine learning. Could you elaborate on the diff",
+    "routed_to": "qwen2.5-1.5B-instruct-awq",
+    "prompt_tokens": 32,
+    "completion_tokens_assumed": 300,
+    "routed_cost": 1.564e-05,
+    "baseline_cost": 0.00012084,
+    "savings": 0.00010520000000000001
+  },
+  {
+    "prompt": "How have the Alps and Rhine River influenced settlement and agriculture in Weste",
+    "routed_to": "qwen2.5-1.5B-instruct-awq",
+    "prompt_tokens": 20,
+    "completion_tokens_assumed": 300,
+    "routed_cost": 1.54e-05,
+    "baseline_cost": 0.0001194,
+    "savings": 0.00010400000000000001
+  },
+  {
+    "prompt": "Provide insights into the correlation between economic indicators such as GDP, i",
+    "routed_to": "qwen2.5-1.5B-instruct-awq",
+    "prompt_tokens": 28,
+    "completion_tokens_assumed": 300,
+    "routed_cost": 1.556e-05,
+    "baseline_cost": 0.00012035999999999999,
+    "savings": 0.0001048
+  },
+  {
+    "prompt": "How do the stages of life shape our understanding of time and mortality?",
+    "routed_to": "qwen2.5-1.5B-instruct-awq",
+    "prompt_tokens": 14,
+    "completion_tokens_assumed": 300,
+    "routed_cost": 1.528e-05,
+    "baseline_cost": 0.00011868000000000001,
+    "savings": 0.0001034
+  },
+  {
+    "prompt": "Discuss antitrust laws and their impact on market competition. Compare the antit",
+    "routed_to": "qwen2.5-1.5B-instruct-awq",
+    "prompt_tokens": 26,
+    "completion_tokens_assumed": 300,
+    "routed_cost": 1.552e-05,
+    "baseline_cost": 0.00012012000000000001,
+    "savings": 0.00010460000000000001
+  },
+  {
+    "prompt": "Create a lesson plan that integrates drama, mime or theater techniques into a hi",
+    "routed_to": "qwen2.5-7B-instruct-awq",
+    "prompt_tokens": 55,
+    "completion_tokens_assumed": 300,
+    "routed_cost": 3.2200000000000003e-05,
+    "baseline_cost": 0.0001236,
+    "savings": 9.14e-05
+  },
+  {
+    "prompt": "Share ideas for adapting art masterpieces into interactive experiences for child",
+    "routed_to": "qwen2.5-1.5B-instruct-awq",
+    "prompt_tokens": 22,
+    "completion_tokens_assumed": 300,
+    "routed_cost": 1.5439999999999998e-05,
+    "baseline_cost": 0.00011964,
+    "savings": 0.0001042
+  },
+  {
+    "prompt": "Explain what's base rate fallacy and list five specific examples of how politici",
+    "routed_to": "qwen2.5-1.5B-instruct-awq",
+    "prompt_tokens": 21,
+    "completion_tokens_assumed": 300,
+    "routed_cost": 1.542e-05,
+    "baseline_cost": 0.00011952,
+    "savings": 0.0001041
+  },
+  {
+    "prompt": "Describe five key principles in evaluating an argument in analytical writing.",
+    "routed_to": "qwen2.5-1.5B-instruct-awq",
+    "prompt_tokens": 12,
+    "completion_tokens_assumed": 300,
+    "routed_cost": 1.524e-05,
+    "baseline_cost": 0.00011844,
+    "savings": 0.0001032
+  },
+  {
+    "prompt": "Which methods did Socrates employ to challenge the prevailing thoughts of his ti",
+    "routed_to": "qwen2.5-1.5B-instruct-awq",
+    "prompt_tokens": 15,
+    "completion_tokens_assumed": 300,
+    "routed_cost": 1.53e-05,
+    "baseline_cost": 0.0001188,
+    "savings": 0.0001035
+  },
+  {
+    "prompt": "What are some business etiquette norms when doing business in Japan?",
+    "routed_to": "qwen2.5-1.5B-instruct-awq",
+    "prompt_tokens": 12,
+    "completion_tokens_assumed": 300,
+    "routed_cost": 1.524e-05,
+    "baseline_cost": 0.00011844,
+    "savings": 0.0001032
+  },
+  {
+    "prompt": "Suggest five award-winning documentary films with brief background descriptions ",
+    "routed_to": "qwen2.5-1.5B-instruct-awq",
+    "prompt_tokens": 17,
+    "completion_tokens_assumed": 300,
+    "routed_cost": 1.534e-05,
+    "baseline_cost": 0.00011904000000000001,
+    "savings": 0.00010370000000000001
+  }
+]
