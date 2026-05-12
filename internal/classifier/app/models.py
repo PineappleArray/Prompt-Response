@@ -5,10 +5,10 @@ class Req(BaseModel):
 
 
 class Resp(BaseModel):
-    model: str
-    task_type: str
-    reasoning: float
-    complexity: float
+    tier: str
+    score: float
+    signals: dict[str, float]
+    build_reason: str
 
 class Req(BaseModel):
     prompt: str = ""              # kept for backward compat

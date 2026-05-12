@@ -55,7 +55,7 @@ func NewRouter(endpoint string) *Router {
 	return &Router{
 		mlEndpoint: endpoint,
 		httpClient: &http.Client{
-			Timeout: 2 * time.Second,
+			Timeout: 30 * time.Second,
 		},
 	}
 }
