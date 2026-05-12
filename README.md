@@ -4,6 +4,30 @@
 
 Routes OpenAI-compatible requests to vLLM replicas by classifying request complexity across 6 heuristic signals with a Deberta prompt classifier, then selecting the optimal replica based on a weighted composite of cache affinity, queue depth, and GPU KV cache pressure — ensuring simple queries don't waste large-model capacity and cache-pressured replicas don't receive more traffic that would destroy their prefix cache hits.
 
+## Benchmark
+
+  MT-Benchmark Routing Metrics
+====================================
+  Total Prompts: 80
+  Successfully Classified: 80
+  Correct Classification: 63/80 (78.8%)
+  Avg Latency: 707ms
+====================================
+
+  Avg Amount Saved Thru Routing
+══════════════════════════════════════════════════════
+Prompts evaluated:   80
+Total routed cost:   $0.002113
+Total baseline cost: $0.010013  (always-qwen2.5-72b-instruct)
+Savings:             78.9%
+
+Routing distribution:
+  qwen2.5-1.5B-instruct-awq          53  (66.2%)
+  qwen2.5-7B-instruct-awq            12  (15.0%)
+  qwen2.5-coder-7b-instruct-awq      11  (13.8%)
+  qwen2.5-72b-instruct                4  ( 5.0%)
+══════════════════════════════════════════════════════
+
 ## Architecture
 
 ```
