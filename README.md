@@ -28,7 +28,36 @@ Routing distribution:
   qwen2.5-coder-7b-instruct-awq      11  (13.8%)
   qwen2.5-72b-instruct                4  ( 5.0%)
 ══════════════════════════════════════════════════════
+
+═══════════════════════════════════════════════════════════════
+  ROUTING EVALUATION (MT-Bench, 80 prompts)
+═══════════════════════════════════════════════════════════════
+
+  Overall accuracy:     66.2%
+  Safe routing rate:    92.5%  (correct + over-routed)
+  Under-routed:          7.5%  (sent to weaker model than needed)
+  Critical misroutes:    7.5%  (needed reasoning/large, got small)
+
+  Per-Tier              Precision   Recall     F1      F2
+  ─────────────────────────────────────────────────────────
+  small                    0.0%      0.0%     0.0%    0.0%
+  code                    81.8%     90.0%    85.7%   88.2%
+  reasoning               83.0%     73.3%    77.9%   75.1%
+
+  Cost Efficiency
+  ─────────────────────────────────────────────────────────
+  Savings vs always-large:    59.6%
+  Overhead vs optimal:        29.3%
+═══════════════════════════════════════════════════════════════
 ```
+Routing priority: prevent under-routing. Slight excess compute is acceptable; 
+a sub-standard response from an under-powered model causes downstream failures 
+(retries, user dissatisfaction, correction loops) that cost more than the 
+inference savings.
+
+Safe routing rate: 92.5% — only 7.5% of prompts received a less capable model 
+than needed, all of which were ambiguous reasoning prompts that scored low on 
+the classifier.
 
 ## Architecture
 
