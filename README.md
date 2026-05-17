@@ -4,6 +4,8 @@
 
 Routes OpenAI-compatible requests to vLLM replicas by classifying request complexity across 6 heuristic signals with a Deberta prompt classifier, then selecting the optimal replica based on a weighted composite of cache affinity, queue depth, and GPU KV cache pressure — ensuring simple queries don't waste large-model capacity and cache-pressured replicas don't receive more traffic that would destroy their prefix cache hits.
 
+For rendered architecture and request-flow diagrams, see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+
 ## Benchmark
 
 ```
@@ -310,15 +312,20 @@ All fields have sensible defaults. Minimum required: `replicas` (at least one) a
 ```
 cmd/router/main.go          Entry point, initialization, graceful shutdown
 internal/
-├── classifier/              6-signal heuristic classifier
-├── config/                  YAML config with validation + defaults
-├── metrics/                 Prometheus metric definitions
-├── middleware/               Request ID, timeout, body size limit
-├── poller/                  Health polling + Prometheus metrics scraping
-├── proxy/                   HTTP handler, reverse proxy, SSE stream instrumentation
-├── scorer/                  Tier-aware replica selection
-├── store/                   Affinity cache (Redis + in-memory)
-└── types/                   Shared type definitions
+├── audit/                  Ring buffer of routing decisions for debugging
+├── auth/                   API key validation middleware with tenant mapping
+├── circuit/                Per-replica circuit breaker for fast-fail
+├── classifier/             6-signal heuristic + Deberta prompt classifier
+├── config/                 YAML config with validation + defaults
+├── metrics/                Prometheus metric definitions
+├── middleware/             Request ID, timeout, body size limit
+├── poller/                 Health polling + Prometheus metrics scraping
+├── proxy/                  HTTP handler, reverse proxy, SSE stream instrumentation
+├── ratelimit/              Per-tenant token bucket rate limiting
+├── scorer/                 Tier-aware replica selection
+├── store/                  Affinity cache (Redis + in-memory)
+├── types/                  Shared type definitions
+└── usage/                  Per-tenant input/output token counters
 ```
 
 ## Testing
@@ -355,117 +362,3 @@ make lint     # go vet + gofmt check
 make docker   # docker compose up --build
 make clean    # Remove build artifacts
 ```
-### Layer 1 — Proxy Handler (`handler.go`)
-Receives incoming requests and builds a structured representation
-
-### Layer 2 — Classifier (`classifier.go`)
-Classifies the request with a preliminary textbase word classification system whose that aims to save on computation and latency. Uses a Deberta classifier for type classification utilized for its compact size and disentangled attention which allows for better intent classification. After classification the metrics of complexity, task specification, and domain knowledge are also utilized when selecting a model as Deberta will misclassify some obvious code generation as text generation. 
-
-### Layer 3 — Scorer (`scorer.go`)
-Checks Redis for semantically similar prompts that have already been processed. If a cache hit is found above a similarity threshold, the cached response is returned. Otherwise, it selects an available replica from the registry for the assigned tier.
-
-### Layer 4 — Dispatcher (WIP)
-Forwards the request to the selected vLLM replica. Handles connection management and response streaming back to the scorer.
-
-### Layer 5 — Response Handler (WIP)
-Receives the vLLM response, writes it to the Redis cache with a prompt hash key, and returns it to the client.
-
----
-
-## Project Structure
-
-```
-Prompt-Response/
-├── cmd/
-│   └── router/
-│       └── main.go              # HTTP server entry point
-├── internal/
-│   └── classifier/
-│       ├── classifier.go        # Classifier interface + structs
-│       ├── huristicClassifier.go # Heuristic scoring logic
-│       └── huristic_test.go     # Unit tests
-└── README.md
-```
-
----
-
-## Getting Started
-
-### Prerequisites
-- Go 1.21+
-- Redis (for prompt caching)
-- At least one running vLLM instance (Ollama or Docker)
-
-### Install
-
-```bash
-git clone https://github.com/PineappleArray/Prompt-Response.git
-cd Prompt-Response
-go mod tidy
-```
-
-### Run Tests
-
-```bash
-go test ./internal/classifier/...
-```
-
-### Run the Router
-
-```bash
-go run cmd/router/main.go
-```
-
----
-
-## Configuration
-
-The classifier weights and tier thresholds are configurable at initialization:
-
-```go
-classifier := newHeuristic(HeuristicConfig{
-    Weights: SignalWeights{
-        Length:     0.25,
-        Code:       0.35,
-        Reasoning:  0.25,
-        Complexity: 0.15,
-    },
-    Threshold: 0.5,
-})
-```
-
----
-
-## Known Limitations
-
-This is a portfolio-grade project with intentional scope constraints:
-
-| Limitation | Detail |
-|---|---|
-| No crash checking | If a vLLM replica crashes it will still receive signals |
-| No request lifecycle | No timeouts — a hung vLLM will remain hung |
-| No autoscaling | Docker testing setup prevents horizontal scaling |
-| No rate limiting | No per-client resource limits |
-| Partial Redis resilience | No backup store, periodic writes only |
-| Single router | Router is not horizontally scaled |
-
----
-
-## Roadmap
-
-- [ ] Finish Layer 4 dispatcher
-- [ ] Finish Layer 5 response handler
-- [ ] Wire up `main.go` with HTTP server
-- [ ] Replace heuristic classifier with lightweight ML model
-- [ ] Add medium tier routing logic
-- [ ] Redis connection pooling
-- [ ] OpenAI-compatible `/v1/chat/completions` endpoint
-
----
-
-## Tech Stack
-
-- **Go** — proxy handler, classifier, router
-- **Redis** — prompt similarity cache
-- **vLLM / Ollama** — local model replicas
-- **Docker** — replica containerization
