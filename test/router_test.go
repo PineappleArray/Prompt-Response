@@ -2,6 +2,7 @@ package test
 
 import (
 	"math"
+	"os"
 	"testing"
 	"time"
 )
@@ -26,6 +27,9 @@ func mustLoadModels(t *testing.T) map[string]*MockModel {
 
 func mustLoadMTBench(t *testing.T) []Request {
 	t.Helper()
+	if _, err := os.Stat(testMTBenchPath); err != nil {
+		t.Skipf("MT-Bench dataset not present at %s — place question.jsonl in testdata/ to enable", testMTBenchPath)
+	}
 	prompts, err := LoadMTBench(testMTBenchPath)
 	if err != nil {
 		t.Fatalf("loading MT-Bench: %v", err)
@@ -71,6 +75,9 @@ func TestLoadConfigMissing(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestLoadMTBench(t *testing.T) {
+	if _, err := os.Stat(testMTBenchPath); err != nil {
+		t.Skipf("MT-Bench dataset not present at %s", testMTBenchPath)
+	}
 	prompts, err := LoadMTBench(testMTBenchPath)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -95,6 +102,9 @@ func TestLoadMTBench(t *testing.T) {
 }
 
 func TestMTBenchToRequests(t *testing.T) {
+	if _, err := os.Stat(testMTBenchPath); err != nil {
+		t.Skipf("MT-Bench dataset not present at %s", testMTBenchPath)
+	}
 	prompts, err := LoadMTBench(testMTBenchPath)
 	if err != nil {
 		t.Fatalf("loading: %v", err)
@@ -122,6 +132,9 @@ func TestMTBenchToRequests(t *testing.T) {
 }
 
 func TestMTBenchCategories(t *testing.T) {
+	if _, err := os.Stat(testMTBenchPath); err != nil {
+		t.Skipf("MT-Bench dataset not present at %s", testMTBenchPath)
+	}
 	prompts, err := LoadMTBench(testMTBenchPath)
 	if err != nil {
 		t.Fatalf("loading: %v", err)
