@@ -22,6 +22,7 @@ import (
 	"prompt-response/internal/scorer"
 	"prompt-response/internal/store"
 	"prompt-response/internal/usage"
+	"prompt-response/internal/web"
 
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
@@ -157,6 +158,10 @@ func main() {
 
 	mux := http.NewServeMux()
 	mux.Handle("/metrics", promhttp.Handler())
+	mux.Handle("/dashboard/", web.Handler())
+	mux.HandleFunc("/dashboard", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/dashboard/", http.StatusMovedPermanently)
+	})
 	mux.Handle("/", wrapped)
 
 	srv := &http.Server{
@@ -167,7 +172,7 @@ func main() {
 	}
 
 	go func() {
-		slog.Info("router listening", "addr", cfg.ListenAddr)
+		slog.Info("router listening", "addr", cfg.ListenAddr, "dashboard", cfg.ListenAddr+"/dashboard/")
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			slog.Error("server error", "err", err)
 			os.Exit(1)
