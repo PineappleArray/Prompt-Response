@@ -26,6 +26,7 @@ make clean        # Remove bin/
 - **internal/scorer/** — Tier-aware replica selection with weighted scoring
 - **internal/store/** — Prefix-cache affinity (Redis + in-memory fallback)
 - **internal/types/** — Shared type definitions
+- **internal/web/** — Embedded observability dashboard (served at `/dashboard/`)
 
 ## Conventions
 
@@ -54,6 +55,7 @@ make clean        # Remove bin/
 - `GET /healthz` — Liveness probe
 - `GET /readyz` — Readiness with per-replica health
 - `GET /metrics` — Prometheus metrics
+- `GET /dashboard/` — Embedded observability dashboard (web UI)
 
 ## Configuration
 
