@@ -3,6 +3,7 @@ from datasets import load_dataset
 from transformers import AutoTokenizer
 from collections import Counter
 import classifier_server as classifier_server
+from model_select import pick
 
 # Model identifiers
 SMALL     = "qwen2.5-1.5B-instruct-awq"   
@@ -40,7 +41,7 @@ def route_all(prompts):
     for prompt in prompts:
         truncated = classifier_server.smart_truncate(prompt)
         r = classifier_server.classify_prompt(truncated)
-        chosen = classifier_server.pick(r)
+        chosen = pick(r)
         results.append((chosen, prompt))
     return results
 

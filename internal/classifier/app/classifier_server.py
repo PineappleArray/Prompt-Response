@@ -10,11 +10,6 @@ import threading
 
 _tokenizer_lock = threading.Lock()
 
-CODE_SIGNALS = {"html", "css", "javascript", "python", "code",
-                "function", "script", "api", "sql", "regex",
-                "website", "app", "debug", "error", "compile",
-                "algorithm", "class", "import", "return"}
-
 
 class MeanPooling(nn.Module):
     def forward(self, h, mask):
@@ -123,36 +118,6 @@ print(f"Unexpected keys ({len(unexpected)}):", unexpected[:5])
 classifier_model = classifier_model.to(DEVICE).eval()
 tokenizer = AutoTokenizer.from_pretrained(MODEL_REPO)
 print("Head order:", classifier_model.target_names)
-
-# ---------------------------------------------------------------------------
-# Model tier constants
-# ---------------------------------------------------------------------------
-
-SMALL     = "qwen2.5-1.5B-instruct-awq"
-CODE      = "qwen2.5-coder-7b-instruct-awq"
-REASONING = "qwen2.5-7B-instruct-awq"
-LARGE     = "qwen2.5-72b-instruct"
-
-
-# ---------------------------------------------------------------------------
-# Routing logic
-# ---------------------------------------------------------------------------
-
-
-#def pick(r):
-#    if r.get("reasoning", 0) >= 0.60 or r.get("prompt_complexity_score", 0) >= 0.60:
-#        return LARGE
-#    for word in CODE_SIGNALS:
-#        if word in r.get("task_type", "").lower():
-#            return CODE
-#    if r.get("task_type") == "Code Generation":
-#        return CODE
-#    if r.get("reasoning", 0) >= 0.20 or r.get("prompt_complexity_score", 0) >= 0.25:
-#        return REASONING
-#    if "QA" in r.get("task_type", "") and r.get("prompt_complexity_score", 0) < 0.15:
-#        return SMALL
-#    return REASONING  # default to reasoning instead of small
-
 
 @torch.inference_mode()
 def classify_prompt(prompt: str) -> dict:
