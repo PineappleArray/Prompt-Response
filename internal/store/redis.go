@@ -103,7 +103,8 @@ func (r *RedisStore) addSession(sessionID string, userID string, model types.Mod
 			slog.Warn("session model tier mismatch", "key", key, "existing", tier, "new", model)
 		} else {
 			slog.Debug("session already exists with same model tier", "key", key, "model", model)
-			if types.compareTiers(tier, model) > 0 {
+			if types.CompareTiers(tier, model) > 0 {
+
 			}
 		}
 	}

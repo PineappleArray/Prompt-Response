@@ -3,6 +3,10 @@ package config
 import (
 	"fmt"
 	"os"
+	"regexp"
+	"sort"
+	"strconv"
+	"strings"
 	"time"
 
 	"prompt-response/internal/types"
@@ -10,9 +14,13 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// ---------------------------------------------------------------------------
+// Top-level config
+// ---------------------------------------------------------------------------
+
 type Config struct {
 	ListenAddr   string            `yaml:"listen_addr"`
-	Replicas     []Replica         `yaml:"replicas"`
+	Models       []ModelTier       `yaml:"Models"`
 	Redis        Redis             `yaml:"redis"`
 	Weights      Weights           `yaml:"weights"`
 	Classifier   ClassifierWeights `yaml:"classifier"`
@@ -30,6 +38,10 @@ type Config struct {
 	PollInterval time.Duration     `yaml:"poll_interval"`
 	Keywords     KeywordSets       `yaml:"keywords"`
 }
+
+// ---------------------------------------------------------------------------
+// Sub-configs
+// ---------------------------------------------------------------------------
 
 type KeywordSets struct {
 	Code       []string `yaml:"code"`
@@ -58,26 +70,6 @@ type ClassifierWeights struct {
 	OutputLength float64 `yaml:"output_length"`
 }
 
-type ReplicaConfig struct {
-	ID    string `yaml:"id"`
-	URL   string `yaml:"url"`
-	Model string `yaml:"model"`
-}
-
-type ModelTier struct {
-	Name       string          `yaml:"name"`
-	Priority   int             `yaml:"priority"`
-	ScoreRange [2]float64      `yaml:"score_range"`
-	Models     []ReplicaConfig `yaml:"models"`
-}
-
-type Replica struct {
-	ID    string    `yaml:"id"`
-	URL   string    `yaml:"url"`
-	Model string    `yaml:"model"`
-	Tier  ModelTier `yaml:"tier"`
-}
-
 type Redis struct {
 	Addr string `yaml:"addr"`
 }
@@ -89,49 +81,128 @@ type Weights struct {
 	Baseline        float64 `yaml:"baseline"`
 }
 
-// Auth controls API key authentication.
 type Auth struct {
 	Enabled bool      `yaml:"enabled"`
 	Keys    []AuthKey `yaml:"keys"`
 }
 
-// AuthKey maps an API key to a tenant identifier.
 type AuthKey struct {
 	Key    string `yaml:"key"`
 	Tenant string `yaml:"tenant"`
 }
 
-// RateLimit controls per-tenant request rate limiting.
 type RateLimit struct {
 	Enabled           bool    `yaml:"enabled"`
 	RequestsPerMinute float64 `yaml:"requests_per_minute"`
 	Burst             int     `yaml:"burst"`
 }
 
-// Audit controls the request routing decision audit trail.
 type Audit struct {
 	Enabled    bool `yaml:"enabled"`
 	BufferSize int  `yaml:"buffer_size"`
 }
 
-// Usage controls per-tenant token consumption tracking for cost attribution.
 type Usage struct {
 	Enabled bool `yaml:"enabled"`
 }
 
-// Stream controls dead-replica detection on streamed responses.
-//
-// stall_timeout fires when the upstream emits no body bytes for that long.
-// Before any client bytes have been forwarded the request is rerouted to a
-// different replica; after the first byte the connection is aborted and the
-// failure is recorded against the replica's circuit breaker.
-//
-// done_timeout bounds the total time a stream may run without observing the
-// SSE [DONE] sentinel — set to zero to disable the upper bound.
 type Stream struct {
 	StallTimeout time.Duration `yaml:"stall_timeout"`
 	DoneTimeout  time.Duration `yaml:"done_timeout"`
 }
+
+// ---------------------------------------------------------------------------
+// Model tier + replica config (YAML representation)
+// ---------------------------------------------------------------------------
+
+type ModelTier struct {
+	Name     string          `yaml:"name"`
+	Priority int             `yaml:"priority"`
+	Routing  TierRouting     `yaml:"routing"`
+	Models   []ReplicaConfig `yaml:"models"`
+}
+
+type ReplicaConfig struct {
+	ID    string `yaml:"id"`
+	URL   string `yaml:"url"`
+	Model string `yaml:"model"`
+}
+
+// ---------------------------------------------------------------------------
+// Routing rules — configurable tier selection based on classifier signals
+//
+// Evaluation order:
+//   1. Tiers are evaluated in priority order (lowest priority number first)
+//   2. Within a tier, task_types and code_signals are checked first
+//   3. Then each rule in rules[] is evaluated (OR logic between rules)
+//   4. Within a single rule, all non-nil fields must match (AND logic)
+//   5. If no tier matches, the fallback tier is selected
+// ---------------------------------------------------------------------------
+
+type TierRouting struct {
+	Rules       []RoutingRule `yaml:"rules"`
+	TaskTypes   []string      `yaml:"task_types"`
+	CodeSignals bool          `yaml:"code_signals"`
+	Fallback    bool          `yaml:"fallback"`
+}
+
+// RoutingRule defines a set of threshold conditions on classifier output.
+// All non-nil fields must be satisfied for the rule to match (AND logic).
+// Multiple rules on a tier use OR logic — any single rule matching selects the tier.
+type RoutingRule struct {
+	MinScore      *float64 `yaml:"min_score"`
+	MaxScore      *float64 `yaml:"max_score"`
+	MinReasoning  *float64 `yaml:"min_reasoning"`
+	MaxReasoning  *float64 `yaml:"max_reasoning"`
+	MinDomain     *float64 `yaml:"min_domain"`
+	MaxDomain     *float64 `yaml:"max_domain"`
+	MinCreativity *float64 `yaml:"min_creativity"`
+	MaxCreativity *float64 `yaml:"max_creativity"`
+	MinConstraint *float64 `yaml:"min_constraint"`
+	MaxConstraint *float64 `yaml:"max_constraint"`
+	TaskTypes     []string `yaml:"task_types"`
+}
+
+// ---------------------------------------------------------------------------
+// Model size parsing
+// ---------------------------------------------------------------------------
+
+var modelSizeRe = regexp.MustCompile(`(?i)(\d+\.?\d*)\s*[Bb]`)
+
+// parseModelSize extracts the parameter count from a model name string.
+//
+//	"Qwen/Qwen2.5-1.5B-Instruct-AWQ"  -> 1_500_000_000
+//	"Qwen/Qwen2.5-72B-Instruct-AWQ"   -> 72_000_000_000
+//	"meta-llama/Llama-3.2-3B"          -> 3_000_000_000
+//	"unknown-model"                     -> 0
+func parseModelSize(modelName string) int64 {
+	match := modelSizeRe.FindStringSubmatch(modelName)
+	if match == nil {
+		return 0
+	}
+	size, err := strconv.ParseFloat(match[1], 64)
+	if err != nil {
+		return 0
+	}
+	return int64(size * 1e9)
+}
+
+func isCodeModel(modelName string) bool {
+	lower := strings.ToLower(modelName)
+	return strings.Contains(lower, "code") || strings.Contains(lower, "coder")
+}
+
+func isReasoningModel(modelName string) bool {
+	lower := strings.ToLower(modelName)
+	return strings.Contains(lower, "qwq") ||
+		strings.Contains(lower, "deepseek-r1") ||
+		strings.Contains(lower, "o1") ||
+		strings.Contains(lower, "reasoning")
+}
+
+// ---------------------------------------------------------------------------
+// Config loading
+// ---------------------------------------------------------------------------
 
 func Load(path string) (*Config, error) {
 	f, err := os.ReadFile(path)
@@ -165,7 +236,6 @@ func applyDefaults(cfg *Config) {
 	if cfg.PollInterval == 0 {
 		cfg.PollInterval = 2 * time.Second
 	}
-	// Classifier weight defaults
 	c := &cfg.Classifier
 	if c.Length == 0 && c.Code == 0 && c.Reasoning == 0 {
 		c.Length = 0.20
@@ -175,7 +245,6 @@ func applyDefaults(cfg *Config) {
 		c.ConvDepth = 0.10
 		c.OutputLength = 0.15
 	}
-	// Circuit breaker defaults
 	if cfg.Circuit.ErrorThreshold == 0 {
 		cfg.Circuit.ErrorThreshold = 0.5
 	}
@@ -188,44 +257,102 @@ func applyDefaults(cfg *Config) {
 	if cfg.Circuit.MinSamples == 0 {
 		cfg.Circuit.MinSamples = 5
 	}
-	// Retry defaults
 	if cfg.Retry.MaxRetries == 0 {
 		cfg.Retry.MaxRetries = 1
 	}
 	if cfg.Retry.Timeout == 0 {
 		cfg.Retry.Timeout = 30 * time.Second
 	}
-	// Rate limit defaults
 	if cfg.RateLimit.RequestsPerMinute == 0 {
 		cfg.RateLimit.RequestsPerMinute = 60
 	}
 	if cfg.RateLimit.Burst == 0 {
 		cfg.RateLimit.Burst = 10
 	}
-	// Audit defaults
 	if cfg.Audit.BufferSize == 0 {
 		cfg.Audit.BufferSize = 1000
 	}
-	// Stream defaults — stall_timeout must be short enough that a wedged
-	// replica is rerouted before the client gives up, but long enough that
-	// healthy small-tier latency does not trip it.
 	if cfg.Stream.StallTimeout == 0 {
 		cfg.Stream.StallTimeout = 15 * time.Second
 	}
 }
 
+// ---------------------------------------------------------------------------
+// Validation
+// ---------------------------------------------------------------------------
+
 func validate(cfg *Config) error {
-	if len(cfg.Replicas) == 0 {
-		return fmt.Errorf("at least one replica required")
+	if len(cfg.Models) == 0 {
+		return fmt.Errorf("at least one model tier required")
 	}
-	for _, r := range cfg.Replicas {
-		if r.ID == "" || r.URL == "" {
-			return fmt.Errorf("replica must have id and url")
+
+	priorities := make(map[int]string)
+	names := make(map[string]bool)
+	hasFallback := false
+
+	for _, t := range cfg.Models {
+		if t.Name == "" {
+			return fmt.Errorf("model tier must have a name")
 		}
-		if !types.ValidTier(r.Tier) {
-			return fmt.Errorf("replica %s: invalid tier %q (valid: small, medium, large, code)", r.ID, r.Tier)
+		if t.Priority < 0 {
+			return fmt.Errorf("model tier %s: priority must be non-negative", t.Name)
+		}
+		if len(t.Models) == 0 {
+			return fmt.Errorf("model tier %s: must have at least one model", t.Name)
+		}
+		if existing, ok := priorities[t.Priority]; ok {
+			return fmt.Errorf("model tiers %s and %s share priority %d", existing, t.Name, t.Priority)
+		}
+		if names[t.Name] {
+			return fmt.Errorf("duplicate model tier name: %s", t.Name)
+		}
+		priorities[t.Priority] = t.Name
+		names[t.Name] = true
+
+		if t.Routing.Fallback {
+			if hasFallback {
+				return fmt.Errorf("model tier %s: only one tier can be fallback", t.Name)
+			}
+			hasFallback = true
+		}
+
+		// Validate routing rules
+		for i, rule := range t.Routing.Rules {
+			if rule.MinScore != nil && rule.MaxScore != nil && *rule.MinScore >= *rule.MaxScore {
+				return fmt.Errorf("model tier %s rule %d: min_score must be less than max_score", t.Name, i)
+			}
+			if rule.MinReasoning != nil && rule.MaxReasoning != nil && *rule.MinReasoning >= *rule.MaxReasoning {
+				return fmt.Errorf("model tier %s rule %d: min_reasoning must be less than max_reasoning", t.Name, i)
+			}
+			if rule.MinDomain != nil && rule.MaxDomain != nil && *rule.MinDomain >= *rule.MaxDomain {
+				return fmt.Errorf("model tier %s rule %d: min_domain must be less than max_domain", t.Name, i)
+			}
+			if rule.MinCreativity != nil && rule.MaxCreativity != nil && *rule.MinCreativity >= *rule.MaxCreativity {
+				return fmt.Errorf("model tier %s rule %d: min_creativity must be less than max_creativity", t.Name, i)
+			}
+			if rule.MinConstraint != nil && rule.MaxConstraint != nil && *rule.MinConstraint >= *rule.MaxConstraint {
+				return fmt.Errorf("model tier %s rule %d: min_constraint must be less than max_constraint", t.Name, i)
+			}
+		}
+
+		// Validate replicas
+		for _, m := range t.Models {
+			if m.ID == "" {
+				return fmt.Errorf("model tier %s: replica missing id", t.Name)
+			}
+			if m.URL == "" {
+				return fmt.Errorf("model tier %s: replica %s missing url", t.Name, m.ID)
+			}
+			if m.Model == "" {
+				return fmt.Errorf("model tier %s: replica %s missing model", t.Name, m.ID)
+			}
 		}
 	}
+
+	if !hasFallback {
+		return fmt.Errorf("exactly one model tier must have routing.fallback: true")
+	}
+
 	if cfg.Redis.Addr == "" {
 		return fmt.Errorf("redis addr required")
 	}
@@ -271,8 +398,81 @@ func validate(cfg *Config) error {
 	return nil
 }
 
-func (cfg *Config) ToReplicaList() types.ReplicaList {
-	return types.ReplicaList{
-		Replicas: cfg.Replicas,
+// ---------------------------------------------------------------------------
+// ToReplicaList builds the runtime replica list with auto-detected model
+// sizes and compiled routing rules.
+// ---------------------------------------------------------------------------
+
+func (c *Config) ToReplicaList() types.ReplicaList {
+	// Sort model tiers by priority (lowest first = evaluated first)
+	sorted := make([]ModelTier, len(c.Models))
+	copy(sorted, c.Models)
+	sort.Slice(sorted, func(i, j int) bool {
+		return sorted[i].Priority < sorted[j].Priority
+	})
+
+	var replicas []types.Replica
+	for _, t := range sorted {
+		// Detect tier-level properties from model names
+		var maxSize int64
+		tierIsCode := false
+		tierIsReasoning := false
+
+		for _, m := range t.Models {
+			size := parseModelSize(m.Model)
+			if size > maxSize {
+				maxSize = size
+			}
+			if isCodeModel(m.Model) {
+				tierIsCode = true
+			}
+			if isReasoningModel(m.Model) {
+				tierIsReasoning = true
+			}
+		}
+
+		// Convert config routing rules to runtime types
+		rules := make([]types.RoutingRule, len(t.Routing.Rules))
+		for i, r := range t.Routing.Rules {
+			rules[i] = types.RoutingRule{
+				MinScore:      r.MinScore,
+				MaxScore:      r.MaxScore,
+				MinReasoning:  r.MinReasoning,
+				MaxReasoning:  r.MaxReasoning,
+				MinDomain:     r.MinDomain,
+				MaxDomain:     r.MaxDomain,
+				MinCreativity: r.MinCreativity,
+				MaxCreativity: r.MaxCreativity,
+				MinConstraint: r.MinConstraint,
+				MaxConstraint: r.MaxConstraint,
+				TaskTypes:     r.TaskTypes,
+			}
+		}
+
+		tier := types.ModelTier{
+			Name:        t.Name,
+			Priority:    t.Priority,
+			MaxSize:     maxSize,
+			IsCode:      tierIsCode,
+			IsReasoning: tierIsReasoning,
+			Routing: types.TierRouting{
+				Rules:       rules,
+				TaskTypes:   t.Routing.TaskTypes,
+				CodeSignals: t.Routing.CodeSignals,
+				Fallback:    t.Routing.Fallback,
+			},
+		}
+
+		for _, m := range t.Models {
+			replicas = append(replicas, types.Replica{
+				ID:        m.ID,
+				URL:       m.URL,
+				Model:     m.Model,
+				Tier:      tier,
+				ParamSize: parseModelSize(m.Model),
+			})
+		}
 	}
+
+	return types.ReplicaList{Replicas: replicas}
 }

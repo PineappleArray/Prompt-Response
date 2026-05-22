@@ -1,8 +1,29 @@
 listen_addr: ":8080"
 
-replicas:
+# ---------------------------------------------------------------------------
+# Model tiers with routing rules
+#
+# Evaluation order: priority (lowest first). Within a tier:
+#   1. task_types match → select tier
+#   2. code_signals detected in text → select tier (if score < 0.60)
+#   3. any routing rule matches → select tier
+#   4. fallback: true → catch-all for unmatched requests
+#
+# Rule logic:
+#   - Multiple rules per tier: OR (any match selects the tier)
+#   - Fields within a rule: AND (all must be satisfied)
+#   - Omitted fields: ignored (no constraint)
+# ---------------------------------------------------------------------------
+
+Models:
   - name: small
     priority: 1
+    routing:
+      # Simple QA / classification with low complexity and low reasoning
+      rules:
+        - task_types: ["QA", "Classification"]
+          max_score: 0.15
+          max_reasoning: 0.15
     models:
       - id: replica-small-1
         url: http://localhost:8001
@@ -10,30 +31,54 @@ replicas:
       - id: replica-small-2
         url: http://localhost:8002
         model: Qwen/Qwen2.5-1.5B-Instruct-AWQ
- 
+
   - name: code
     priority: 2
+    routing:
+      # Explicit code tasks route here directly
+      task_types: ["Code Generation"]
+      # Also catches code blocks in non-code tasks (```, def, class, function)
+      # but only if overall complexity is below 0.60
+      code_signals: true
     models:
       - id: replica-code-1
         url: http://localhost:8003
         model: Qwen/Qwen2.5-Coder-7B-Instruct-AWQ
- 
+
   - name: medium
     priority: 3
+    routing:
+      # Catch-all: anything not simple enough for small, not complex enough
+      # for large, and not a code task
+      fallback: true
     models:
       - id: replica-medium-1
         url: http://localhost:8004
         model: Qwen/Qwen2.5-14B-Instruct-AWQ
- 
+
   - name: large
     priority: 4
+    routing:
+      # High reasoning + moderate complexity
+      # OR high complexity + high domain knowledge + moderate constraints
+      rules:
+        - min_reasoning: 0.70
+          min_score: 0.55
+        - min_score: 0.65
+          min_domain: 0.80
+          min_constraint: 0.60
     models:
       - id: replica-large-1
         url: http://localhost:8005
         model: Qwen/Qwen2.5-72B-Instruct-AWQ
- 
+
   - name: reasoning
     priority: 5
+    routing:
+      # Very high reasoning with high complexity — chain-of-thought tasks
+      rules:
+        - min_reasoning: 0.85
+          min_score: 0.75
     models:
       - id: replica-reasoning-1
         url: http://localhost:8006
@@ -42,20 +87,12 @@ replicas:
 redis:
   addr: localhost:6379
 
-# Scoring weights for replica selection (should sum to ~1.0).
-# cache_affinity: prefer replicas that already cached this system prompt prefix.
-# queue_depth:    prefer replicas with shorter request queues.
-# kv_cache_pressure: penalize replicas nearing GPU KV cache exhaustion
-#                    (at 90%+, vLLM evicts prefixes and preempts running requests).
-# baseline:       constant tiebreaker.
 weights:
   cache_affinity: 0.50
   queue_depth: 0.25
   kv_cache_pressure: 0.15
   baseline: 0.10
 
-# Classifier signal weights (should sum to ~1.0).
-# These determine how the 6-signal heuristic classifier scores request complexity.
 classifier:
   length: 0.20
   code: 0.30
@@ -64,62 +101,33 @@ classifier:
   conv_depth: 0.10
   output_length: 0.15
 
-# Circuit breaker: per-replica error tracking to fast-fail on bad replicas.
-# error_threshold: error rate (0-1) that trips the circuit.
-# window_size:     sliding window for error rate calculation.
-# cooldown:        time in open state before allowing a probe request.
-# min_samples:     minimum requests before evaluating error rate.
 circuit:
   error_threshold: 0.5
   window_size: 10s
   cooldown: 30s
   min_samples: 5
 
-# Retry: on upstream 5xx or connection failure, retry with a different replica.
-# max_retries: number of retries (total attempts = 1 + max_retries).
-# timeout:     per-attempt upstream timeout.
 retry:
   max_retries: 1
   timeout: 30s
 
-# Stream: dead-replica detection on streamed responses.
-# stall_timeout: maximum gap between consecutive upstream body bytes. A stall
-#                before any byte is forwarded triggers a reroute to a different
-#                replica; a stall after streaming has begun aborts the request
-#                and records a circuit-breaker failure. Set to 0 to disable.
-# done_timeout:  optional upper bound on total stream duration without an
-#                SSE [DONE] sentinel. 0 disables the bound.
 stream:
   stall_timeout: 15s
   done_timeout: 0s
 
-# Authentication: API key validation for all non-health endpoints.
-# When enabled, requests must include Authorization: Bearer <key> or X-API-Key header.
-# Health endpoints (/healthz, /readyz) bypass authentication.
 auth:
   enabled: false
   keys: []
-  # - key: "sk-your-api-key"
-  #   tenant: "your-tenant-id"
 
-# Rate limiting: per-tenant token bucket to prevent any single client
-# from monopolizing replicas. Uses tenant ID (from auth) or client IP.
-# requests_per_minute: sustained rate, burst: max tokens for bursts.
 ratelimit:
   enabled: false
   requests_per_minute: 60
   burst: 10
 
-# Audit trail: ring buffer of recent routing decisions for debugging.
-# Query via GET /v1/router/audit?limit=50.
 audit:
   enabled: true
   buffer_size: 1000
 
-# Usage tracking: per-tenant input/output token counters for cost attribution.
-# Query via GET /v1/router/usage (all tenants) or ?tenant=X (single tenant).
-# Also exposed as router_tokens_consumed_total Prometheus counter for
-# multi-instance aggregation and chargeback reporting.
 usage:
   enabled: true
 
@@ -130,16 +138,15 @@ max_queue: 20
 poll_interval: 2s
 
 classifier_settings:
-  maxTokensForNormalization: 120  #tokens beyond this score 1.0 on length signal
-  codeKeywordThreshold: 3         #code keyword hits for max score
-  reasoningKeywordThreshold: 2    #reasoning keyword hits for max score
-  complexityKeywordThreshold: 2   #complexity keyword hits for max score
-  maxConversationDepth: 5         #turns beyond this score 1.0 on depth signal
-  maxTokensForOutputEstimate: 200 #input tokens beyond this assume long output
+  maxTokensForNormalization: 120
+  codeKeywordThreshold: 3
+  reasoningKeywordThreshold: 2
+  complexityKeywordThreshold: 2
+  maxConversationDepth: 5
+  maxTokensForOutputEstimate: 200
 
-#Keywords that will bypass the classifier and be sent directly to the large replica.
-keywords: 
-  strong_reasoning: ["explain", "reason", "think", "why", "how", "what if", analyze", "compare", "contrast", "evaluate", "justify", "prove", "disprove"]
+keywords:
+  strong_reasoning: ["explain", "reason", "think", "why", "how", "what if", "analyze", "compare", "contrast", "evaluate", "justify", "prove", "disprove"]
   code: ["code", "program", "script", "function", "class", "def", "import"]
-  complexity: ["step by step", "edge case", "production","distributed", "scale", "optimize"]
+  complexity: ["step by step", "edge case", "production", "distributed", "scale", "optimize"]
   reasoning: ["explain", "reason", "think", "why", "how", "what if", "analyze", "compare", "contrast", "evaluate", "justify", "prove", "disprove"]
