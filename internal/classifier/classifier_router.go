@@ -29,11 +29,12 @@ type Router struct {
 }
 
 type Request struct {
-	SystemPrompt string `json:"system_prompt"`
-	UserMessage  string `json:"user_message"`
-	TokenCount   int    `json:"token_count"`
-	HasCode      bool   `json:"has_code"`
-	ConvTurns    int    `json:"conv_turns"`
+	SystemPrompt string          `json:"system_prompt"`
+	UserMessage  string          `json:"user_message"`
+	TokenCount   int             `json:"token_count"`
+	HasCode      bool            `json:"has_code"`
+	ConvTurns    int             `json:"conv_turns"`
+	CurrentTier  types.ModelTier `json:"current_tier"`
 }
 
 type Response struct {

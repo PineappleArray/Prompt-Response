@@ -47,6 +47,7 @@ type Handler struct {
 	scorer     *scorer.Scorer
 	classifier classifier.Classifier
 	cfg        *config.Config
+	replicas   types.ReplicaList
 	circuit    *circuit.Registry
 	audit      *audit.Trail
 	usage      *usage.Tracker
@@ -58,6 +59,7 @@ func New(s *scorer.Scorer, c classifier.Classifier, cfg *config.Config, cr *circ
 		scorer:     s,
 		classifier: c,
 		cfg:        cfg,
+		replicas:   types.ReplicaList{Replicas: cfg.Replicas},
 		circuit:    cr,
 		audit:      trail,
 		usage:      tracker,
@@ -131,12 +133,18 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	systemPrompt, userMessage := extractMessages(req)
 	prefixHash := xxhash.Sum64String(systemPrompt)
 
+	// Conversation tier lock: look up the tier this conversation is already
+	// pinned to (if any) so the classifier can only escalate, never downgrade.
+	convHash := conversationHash(r, req, systemPrompt)
+	prevConv, hasConv := h.scorer.Store().GetConversation(convHash)
+
 	classReq := classifier.Request{
 		SystemPrompt: systemPrompt,
 		UserMessage:  userMessage,
 		TokenCount:   estimateTokens(systemPrompt + userMessage),
 		HasCode:      hasCodeBlock(userMessage),
 		ConvTurns:    countTurns(req),
+		CurrentTier:  prevConv.Tier,
 	}
 
 	classResult, err := h.classifier.Classify(r.Context(), classReq)
@@ -154,6 +162,25 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		Score:   classResult.Score,
 		Signals: classResult.Signals,
 		Reason:  classResult.BuildReason,
+	}
+
+	// Up-tier-only enforcement: a conversation's tier never decreases. If a
+	// later turn classifies lower than the conversation is pinned to, keep
+	// the pin. The Python pick() applies the same clamp; this re-clamp is
+	// defense-in-depth in case the conversation state changed concurrently.
+	if hasConv {
+		finalTier := h.replicas.HigherTier(prevConv.Tier, result.Tier)
+		if finalTier != prevConv.Tier {
+			metrics.TierEscalationsTotal.
+				WithLabelValues(string(prevConv.Tier), string(finalTier)).Inc()
+			slog.Info("conversation escalated to higher tier",
+				"conv_hash", convHash,
+				"from_tier", prevConv.Tier,
+				"to_tier", finalTier,
+				"classifier_tier", result.Tier,
+			)
+		}
+		result.Tier = finalTier
 	}
 
 	metrics.ClassifierScore.WithLabelValues(string(result.Tier)).Observe(result.Score)
@@ -338,6 +365,17 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.scorer.RecordHit(prefixHash, chosenReplica.ID)
+
+	// Pin the conversation to the tier it was just served. Subsequent turns
+	// read this back and can only escalate from here. Sharing affinity_ttl
+	// keeps the conversation pin alive exactly as long as the prefix cache.
+	h.scorer.Store().SetConversation(convHash, types.ConvState{
+		Tier:      result.Tier,
+		Model:     chosenReplica.Model,
+		Bucket:    types.ScoreBucket(result.Score),
+		Turns:     countTurns(req),
+		UpdatedAt: time.Now(),
+	}, h.cfg.AffinityTTL)
 
 	if h.circuit != nil {
 		metrics.CircuitState.WithLabelValues(chosenReplica.ID).Set(float64(h.circuit.State(chosenReplica.ID)))
@@ -675,6 +713,29 @@ func extractMessages(req openAIRequest) (system, user string) {
 		}
 	}
 	return
+}
+
+// conversationHash derives a stable key for a multi-turn conversation. An
+// explicit X-Conversation-Id header wins; otherwise the conversation is
+// identified by its system prompt plus its first user message — both of
+// which every turn of a standard chat-completions exchange resends
+// unchanged, so the key is stable across turns.
+func conversationHash(r *http.Request, req openAIRequest, systemPrompt string) uint64 {
+	if id := r.Header.Get("X-Conversation-Id"); id != "" {
+		return xxhash.Sum64String("cid:" + id)
+	}
+	return xxhash.Sum64String(systemPrompt + "\x00" + firstUserMessage(req))
+}
+
+// firstUserMessage returns the content of the earliest user message, which
+// anchors the conversation identity.
+func firstUserMessage(req openAIRequest) string {
+	for _, m := range req.Messages {
+		if m.Role == "user" {
+			return m.Content
+		}
+	}
+	return ""
 }
 
 // countTurns returns the number of user/assistant message pairs,

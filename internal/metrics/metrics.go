@@ -160,4 +160,14 @@ var (
 		},
 		[]string{"tenant", "direction"},
 	)
+
+	// Tier escalations: a conversation promoted from its pinned tier to a
+	// higher one. Conversations only ever escalate, never downgrade.
+	TierEscalationsTotal = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "router_tier_escalations_total",
+			Help: "Total conversation tier escalations, by source and destination tier",
+		},
+		[]string{"from", "to"},
+	)
 )
