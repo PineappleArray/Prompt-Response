@@ -2,13 +2,24 @@ package types
 
 type ModelTier string
 
-const (
-	TierSmall     ModelTier = "small"
-	TierMedium    ModelTier = "medium"
-	TierLarge     ModelTier = "large"
-	TierCode      ModelTier = "code"
-	TierReasoning ModelTier = "reasoning"
-)
+type TierConfig struct {
+    Name       string          `yaml:"name"`
+    Priority   int             `yaml:"priority"`
+    ScoreRange [2]float64      `yaml:"score_range"`
+    Models     []ReplicaConfig `yaml:"models"`
+}
+
+type ReplicaConfig struct {
+    ID    string `yaml:"id"`
+    URL   string `yaml:"url"`
+    Model string `yaml:"model"`
+}
+
+func (t ModelTier) String() string {
+	return string(t)
+}
+
+func 
 
 func ValidTier(t ModelTier) bool {
 	switch t {

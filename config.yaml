@@ -1,15 +1,43 @@
 listen_addr: ":8080"
 
 replicas:
-  - id: replica-small-1
-    url: http://localhost:8001
-    model: Qwen/Qwen2.5-1.5B-Instruct
-    tier: small
-
-  - id: replica-large-1
-    url: http://localhost:8002
-    model: Qwen/Qwen2.5-7B-Instruct
-    tier: large
+  - name: small
+    priority: 1
+    models:
+      - id: replica-small-1
+        url: http://localhost:8001
+        model: Qwen/Qwen2.5-1.5B-Instruct-AWQ
+      - id: replica-small-2
+        url: http://localhost:8002
+        model: Qwen/Qwen2.5-1.5B-Instruct-AWQ
+ 
+  - name: code
+    priority: 2
+    models:
+      - id: replica-code-1
+        url: http://localhost:8003
+        model: Qwen/Qwen2.5-Coder-7B-Instruct-AWQ
+ 
+  - name: medium
+    priority: 3
+    models:
+      - id: replica-medium-1
+        url: http://localhost:8004
+        model: Qwen/Qwen2.5-14B-Instruct-AWQ
+ 
+  - name: large
+    priority: 4
+    models:
+      - id: replica-large-1
+        url: http://localhost:8005
+        model: Qwen/Qwen2.5-72B-Instruct-AWQ
+ 
+  - name: reasoning
+    priority: 5
+    models:
+      - id: replica-reasoning-1
+        url: http://localhost:8006
+        model: Qwen/QwQ-32B-AWQ
 
 redis:
   addr: localhost:6379

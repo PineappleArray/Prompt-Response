@@ -11,6 +11,31 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
+/*
+Prefix Cache:
+Key:    pfx:<xxhash64>
+Value:  replica-id
+
+Convo Tier Lock:
+Key:    conv:<conversation_id>
+Value:  HASH
+types.ModelTier: "small"/"medium"/"large"
+
+Session:
+Key:    session:<session_id>
+Value:  HASH with fields:
+{ user_id: "user_abc", api_key: "sk_hash...", tier_limit: "large", rpm_used: "12" }
+
+Bucketed Rate
+Key:    rate:<user_id>:<minute_bucket>
+Value:  INT (counter)
+
+Replica Health:
+Key:    replica:<replica_id>
+Value:  HASH with fields:
+{ healthy: "1", kv_usage: "0.73", queue_depth: "4", last_poll: "1716312000" }
+*/
+
 type RedisStore struct {
 	client *redis.Client
 }
@@ -48,7 +73,7 @@ func (r *RedisStore) Ping(ctx context.Context) error {
 	return r.client.Ping(ctx).Err()
 }
 
-func (r *RedisStore) addSession(sessionID string, userID string, model types.ModelTier, ttl time.Duration) bool {
+func (r *RedisStore) addSession(sessionID string, userID string, model types.ModelTier, ttl time.Duration) (bool, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
 
@@ -69,8 +94,9 @@ func (r *RedisStore) addSession(sessionID string, userID string, model types.Mod
 		pipe.Expire(ctx, key, ttl)
 		if _, err := pipe.Exec(ctx); err != nil {
 			slog.Warn("failed to set session in redis", "key", key, "err", err)
-			return false
+			return false, nil
 		}
-		return true
+		return true, nil
 	}
+	return false, err
 }
