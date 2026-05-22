@@ -1,4 +1,4 @@
-A list of commands to run the app
-
-Run the classifier_server at port 8000
-python -m uvicorn app.classifier_server:app --reload --host 0.0.0.0 --port 8000
+Use the schema from the config.yaml file along with the config.go file and the types.go file and refactor the rest of the database
+push the changes of dynamic model selection into the classifier_server python files and the pick() function test the code to make sure
+efficiency isnt decreased, update redis to store the current convo model and data including the bucket, along with only allowing
+prompts to up tier as well as context transfer when the models are switched to keep the consistency

@@ -99,11 +99,13 @@ func (r *RedisStore) addSession(sessionID string, userID string, model types.Mod
 	} else {
 		cfg, _ := config.Load("config.yaml")
 		replicas := cfg.ToReplicaList()
+
+		tierLimit := tierCmd["tier_limit"]
 		if replicas.ValidTier(model) == false {
 			slog.Warn("session model tier mismatch", "key", key, "existing", tier, "new", model)
 		} else {
 			slog.Debug("session already exists with same model tier", "key", key, "model", model)
-			if types.CompareTiers(tier, model) > 0 {
+			if types.IsEscalation(tier, model) == true {
 
 			}
 		}
