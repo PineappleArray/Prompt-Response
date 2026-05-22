@@ -37,6 +37,10 @@ type Config struct {
 	MaxQueue     float64           `yaml:"max_queue"`
 	PollInterval time.Duration     `yaml:"poll_interval"`
 	Keywords     KeywordSets       `yaml:"keywords"`
+
+	// Replicas is the flattened runtime replica list, built from Models by
+	// Load via ToReplicaList. It is not read from YAML.
+	Replicas []types.Replica `yaml:"-"`
 }
 
 // ---------------------------------------------------------------------------
@@ -128,6 +132,10 @@ type ReplicaConfig struct {
 	Model string `yaml:"model"`
 }
 
+// Replica is the runtime replica type. It aliases types.Replica so callers
+// in this package and its dependents can refer to config.Replica.
+type Replica = types.Replica
+
 // ---------------------------------------------------------------------------
 // Routing rules — configurable tier selection based on classifier signals
 //
@@ -217,6 +225,7 @@ func Load(path string) (*Config, error) {
 	if err := validate(&cfg); err != nil {
 		return nil, fmt.Errorf("config validation: %w", err)
 	}
+	cfg.Replicas = cfg.ToReplicaList().Replicas
 	return &cfg, nil
 }
 
@@ -449,8 +458,8 @@ func (c *Config) ToReplicaList() types.ReplicaList {
 			}
 		}
 
-		tier := types.ModelTier{
-			Name:        t.Name,
+		tierCfg := types.TierConfig{
+			Name:        types.ModelTier(t.Name),
 			Priority:    t.Priority,
 			MaxSize:     maxSize,
 			IsCode:      tierIsCode,
@@ -468,7 +477,8 @@ func (c *Config) ToReplicaList() types.ReplicaList {
 				ID:        m.ID,
 				URL:       m.URL,
 				Model:     m.Model,
-				Tier:      tier,
+				Tier:      types.ModelTier(t.Name),
+				TierCfg:   tierCfg,
 				ParamSize: parseModelSize(m.Model),
 			})
 		}

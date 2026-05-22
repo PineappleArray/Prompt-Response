@@ -4,38 +4,31 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strconv"
 	"time"
 
-	"prompt-response/internal/config"
 	"prompt-response/internal/types"
 
 	"github.com/redis/go-redis/v9"
 )
 
 /*
-Prefix Cache:
-Key:    pfx:<xxhash64>
-Value:  replica-id
+Redis key schema:
 
-Convo Tier Lock:
-Key:    conv:<conversation_id>
-Value:  HASH
-types.ModelTier: "small"/"medium"/"large"
+Prefix cache (replica affinity):
+	Key:    pfx:<xxhash64>
+	Value:  replica-id
+	TTL:    affinity_ttl
 
-Session:
-Key:    session:<session_id>
-Value:  HASH with fields:
-{ user_id: "user_abc", api_key: "sk_hash...", tier_limit: "large", rpm_used: "12" }
-
-Bucketed Rate
-Key:    rate:<user_id>:<minute_bucket>
-Value:  INT (counter)
-
-Replica Health:
-Key:    replica:<replica_id>
-Value:  HASH with fields:
-{ healthy: "1", kv_usage: "0.73", queue_depth: "4", last_poll: "1716312000" }
+Conversation tier lock:
+	Key:    conv:<xxhash64>
+	Value:  HASH { tier, model, bucket, turns, updated_at }
+	TTL:    affinity_ttl
 */
+
+// redisTimeout bounds every Redis call. Routing must never block on a slow
+// or unreachable Redis — a miss simply degrades to stateless routing.
+const redisTimeout = 50 * time.Millisecond
 
 type RedisStore struct {
 	client *redis.Client
@@ -47,12 +40,16 @@ func NewRedis(addr string) *RedisStore {
 	}
 }
 
+// Ping checks Redis connectivity.
+func (r *RedisStore) Ping(ctx context.Context) error {
+	return r.client.Ping(ctx).Err()
+}
+
 func (r *RedisStore) GetAffinity(hash uint64) (string, bool) {
-	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	ctx, cancel := context.WithTimeout(context.Background(), redisTimeout)
 	defer cancel()
 
-	key := fmt.Sprintf("pfx:%016x", hash)
-	val, err := r.client.Get(ctx, key).Result()
+	val, err := r.client.Get(ctx, affinityKey(hash)).Result()
 	if err != nil {
 		return "", false
 	}
@@ -60,55 +57,62 @@ func (r *RedisStore) GetAffinity(hash uint64) (string, bool) {
 }
 
 func (r *RedisStore) SetAffinity(hash uint64, replicaID string, ttl time.Duration) {
-	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	ctx, cancel := context.WithTimeout(context.Background(), redisTimeout)
 	defer cancel()
 
-	key := fmt.Sprintf("pfx:%016x", hash)
+	key := affinityKey(hash)
 	if err := r.client.Set(ctx, key, replicaID, ttl).Err(); err != nil {
 		slog.Warn("failed to set affinity in redis", "key", key, "replica", replicaID, "err", err)
 	}
 }
 
-// Ping checks Redis connectivity.
-func (r *RedisStore) Ping(ctx context.Context) error {
-	return r.client.Ping(ctx).Err()
-}
-
-func (r *RedisStore) addSession(sessionID string, userID string, model types.ModelTier, ttl time.Duration) (bool, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+// GetConversation returns the tier state pinned to a conversation. A missing
+// key, an expired key, or any Redis error returns ok=false so the caller
+// falls back to stateless routing.
+func (r *RedisStore) GetConversation(convID uint64) (types.ConvState, bool) {
+	ctx, cancel := context.WithTimeout(context.Background(), redisTimeout)
 	defer cancel()
 
-	key := fmt.Sprintf("session:%s", sessionID)
-	pipe := r.client.Pipeline()
-
-	tierCmd := pipe.Get(ctx, fmt.Sprintf("sessionID:%s", sessionID))
-	_, err := pipe.Exec(ctx)
-
-	tier, err := tierCmd.Result()
-	if err == redis.Nil {
-		pipe.HSet(ctx, key, map[string]interface{}{
-			"user_id": userID,
-			"model":   model.Name,
-		})
-		pipe.Expire(ctx, key, ttl)
-		if _, err := pipe.Exec(ctx); err != nil {
-			slog.Warn("failed to set session in redis", "key", key, "err", err)
-			return false, nil
-		}
-		return true, nil
-	} else {
-		cfg, _ := config.Load("config.yaml")
-		replicas := cfg.ToReplicaList()
-
-		tierLimit := tierCmd["tier_limit"]
-		if replicas.ValidTier(model) == false {
-			slog.Warn("session model tier mismatch", "key", key, "existing", tier, "new", model)
-		} else {
-			slog.Debug("session already exists with same model tier", "key", key, "model", model)
-			if types.IsEscalation(tier, model) == true {
-
-			}
-		}
+	key := convKey(convID)
+	fields, err := r.client.HGetAll(ctx, key).Result()
+	if err != nil || len(fields) == 0 {
+		return types.ConvState{}, false
 	}
-	return false, err
+
+	turns, _ := strconv.Atoi(fields["turns"])
+	updated := time.Time{}
+	if ts, err := strconv.ParseInt(fields["updated_at"], 10, 64); err == nil {
+		updated = time.Unix(ts, 0)
+	}
+	return types.ConvState{
+		Tier:      types.ModelTier(fields["tier"]),
+		Model:     fields["model"],
+		Bucket:    fields["bucket"],
+		Turns:     turns,
+		UpdatedAt: updated,
+	}, true
 }
+
+// SetConversation writes the conversation's tier state and refreshes its TTL
+// in a single round-trip. Failures are logged but never block routing.
+func (r *RedisStore) SetConversation(convID uint64, state types.ConvState, ttl time.Duration) {
+	ctx, cancel := context.WithTimeout(context.Background(), redisTimeout)
+	defer cancel()
+
+	key := convKey(convID)
+	pipe := r.client.Pipeline()
+	pipe.HSet(ctx, key, map[string]any{
+		"tier":       string(state.Tier),
+		"model":      state.Model,
+		"bucket":     state.Bucket,
+		"turns":      state.Turns,
+		"updated_at": state.UpdatedAt.Unix(),
+	})
+	pipe.Expire(ctx, key, ttl)
+	if _, err := pipe.Exec(ctx); err != nil {
+		slog.Warn("failed to set conversation in redis", "key", key, "err", err)
+	}
+}
+
+func affinityKey(hash uint64) string { return fmt.Sprintf("pfx:%016x", hash) }
+func convKey(id uint64) string       { return fmt.Sprintf("conv:%016x", id) }

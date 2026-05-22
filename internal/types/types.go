@@ -1,6 +1,40 @@
 package types
 
-import "strings"
+import (
+	"strings"
+	"time"
+)
+
+// ---------------------------------------------------------------------------
+// Model tier — the routing decision, identified by name
+// ---------------------------------------------------------------------------
+
+// ModelTier is the name of a routing tier. It is a string so it can be
+// compared cheaply, carried in JSON to/from the classifier service, and
+// stored in Redis.
+type ModelTier string
+
+const (
+	TierSmall     ModelTier = "small"
+	TierCode      ModelTier = "code"
+	TierMedium    ModelTier = "medium"
+	TierLarge     ModelTier = "large"
+	TierReasoning ModelTier = "reasoning"
+)
+
+// canonicalTiers is the set of tier names the router understands.
+var canonicalTiers = map[ModelTier]bool{
+	TierSmall:     true,
+	TierCode:      true,
+	TierMedium:    true,
+	TierLarge:     true,
+	TierReasoning: true,
+}
+
+// ValidTier reports whether t is a recognised tier name.
+func ValidTier(t ModelTier) bool {
+	return canonicalTiers[t]
+}
 
 // ---------------------------------------------------------------------------
 // Routing rules — runtime representation
@@ -49,8 +83,10 @@ type ClassifierResult struct {
 // Core types
 // ---------------------------------------------------------------------------
 
-type ModelTier struct {
-	Name        string
+// TierConfig is the full configuration of a tier: its name plus the routing
+// rules and model properties compiled from config.yaml.
+type TierConfig struct {
+	Name        ModelTier
 	Priority    int
 	MaxSize     int64
 	IsCode      bool
@@ -58,11 +94,13 @@ type ModelTier struct {
 	Routing     TierRouting
 }
 
+// Replica is a single model server instance.
 type Replica struct {
 	ID        string
 	URL       string
 	Model     string
-	Tier      ModelTier
+	Tier      ModelTier  // tier name — cheap to compare and store
+	TierCfg   TierConfig // full routing config for this replica's tier
 	ParamSize int64
 }
 
@@ -77,13 +115,40 @@ type ReplicaHealth struct {
 	QueueDepth int
 }
 
+// ConvState is the routing state pinned to a conversation. It is persisted
+// in Redis so that every turn of a multi-turn conversation routes to the
+// same (or a higher) tier, keeping answers consistent.
+type ConvState struct {
+	Tier      ModelTier // current tier the conversation is pinned to
+	Model     string    // model name last served to this conversation
+	Bucket    string    // complexity-score band (see ScoreBucket)
+	Turns     int       // number of turns observed so far
+	UpdatedAt time.Time // last time this conversation was routed
+}
+
+// ScoreBucket maps a prompt_complexity_score to a coarse band. Buckets give
+// escalation hysteresis: small score jitter within a band does not re-tier.
+func ScoreBucket(score float64) string {
+	switch {
+	case score < 0.15:
+		return "b0"
+	case score < 0.35:
+		return "b1"
+	case score < 0.55:
+		return "b2"
+	case score < 0.75:
+		return "b3"
+	default:
+		return "b4"
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Tier selection — the routing engine
 // ---------------------------------------------------------------------------
 
 // TierForClassification evaluates all tiers in priority order and returns
-// the first match. This replaces the hardcoded pick() function — all
-// routing logic lives in the YAML config.
+// the name of the first match. All routing logic lives in the YAML config.
 //
 // Evaluation per tier:
 //  1. Check task_type match against tier's TaskTypes
@@ -91,53 +156,53 @@ type ReplicaHealth struct {
 //  3. Evaluate each routing rule (OR logic)
 //  4. If nothing matched and tier is fallback, select it
 func (r ReplicaList) TierForClassification(result ClassifierResult) ModelTier {
-	// Tiers are already sorted by priority from ToReplicaList
-	seen := make(map[string]bool)
+	// Tiers are already sorted by priority from ToReplicaList.
+	seen := make(map[ModelTier]bool)
 	for _, rep := range r.Replicas {
-		if seen[rep.Tier.Name] {
+		if seen[rep.TierCfg.Name] {
 			continue
 		}
-		seen[rep.Tier.Name] = true
+		seen[rep.TierCfg.Name] = true
 
-		routing := rep.Tier.Routing
+		routing := rep.TierCfg.Routing
 
-		// Skip fallback on first pass
+		// Skip fallback on first pass.
 		if routing.Fallback {
 			continue
 		}
 
 		if tierMatches(routing, result) {
-			return rep.Tier
+			return rep.TierCfg.Name
 		}
 	}
 
-	// No explicit match — use fallback tier
+	// No explicit match — use fallback tier.
 	for _, rep := range r.Replicas {
-		if rep.Tier.Routing.Fallback {
-			return rep.Tier
+		if rep.TierCfg.Routing.Fallback {
+			return rep.TierCfg.Name
 		}
 	}
 
-	// Should never happen if config validation passed
+	// Should never happen if config validation passed.
 	return r.LargestTier()
 }
 
 func tierMatches(routing TierRouting, result ClassifierResult) bool {
-	// Check task type match
+	// Check task type match.
 	if matchesTaskType(routing.TaskTypes, result.TaskType) {
 		return true
 	}
 
-	// Check code signals in the raw prompt text
+	// Check code signals in the raw prompt text.
 	if routing.CodeSignals && hasCodeInText(result.Text) {
 		// Only match if complexity is low enough that it's a
-		// straightforward code task, not a complex architecture question
+		// straightforward code task, not a complex architecture question.
 		if result.Score < 0.60 {
 			return true
 		}
 	}
 
-	// Evaluate routing rules (OR logic — any match selects this tier)
+	// Evaluate routing rules (OR logic — any match selects this tier).
 	for _, rule := range routing.Rules {
 		if ruleMatches(rule, result) {
 			return true
@@ -148,7 +213,7 @@ func tierMatches(routing TierRouting, result ClassifierResult) bool {
 }
 
 func ruleMatches(rule RoutingRule, r ClassifierResult) bool {
-	// If rule has task_types, check them first
+	// If rule has task_types, check them first.
 	if len(rule.TaskTypes) > 0 && !matchesTaskType(rule.TaskTypes, r.TaskType) {
 		return false
 	}
@@ -213,15 +278,6 @@ func hasCodeInText(text string) bool {
 // Helper methods
 // ---------------------------------------------------------------------------
 
-func (r ReplicaList) ValidTier(name string) bool {
-	for _, rep := range r.Replicas {
-		if rep.Tier.Name == name {
-			return true
-		}
-	}
-	return false
-}
-
 func (r ReplicaList) SmallestTier() ModelTier {
 	smallest := r.Replicas[0]
 	for _, rep := range r.Replicas[1:] {
@@ -242,58 +298,79 @@ func (r ReplicaList) LargestTier() ModelTier {
 	return largest.Tier
 }
 
-func (r ReplicaList) CodeTier() *ModelTier {
+func (r ReplicaList) CodeTier() *TierConfig {
 	for _, rep := range r.Replicas {
-		if rep.Tier.IsCode {
-			t := rep.Tier
+		if rep.TierCfg.IsCode {
+			t := rep.TierCfg
 			return &t
 		}
 	}
 	return nil
 }
 
-func (r ReplicaList) ReasoningTier() *ModelTier {
+func (r ReplicaList) ReasoningTier() *TierConfig {
 	for _, rep := range r.Replicas {
-		if rep.Tier.IsReasoning {
-			t := rep.Tier
+		if rep.TierCfg.IsReasoning {
+			t := rep.TierCfg
 			return &t
 		}
 	}
 	return nil
 }
 
-func (r ReplicaList) TierByName(name string) *ModelTier {
+func (r ReplicaList) TierByName(name ModelTier) *TierConfig {
 	for _, rep := range r.Replicas {
-		if rep.Tier.Name == name {
-			t := rep.Tier
+		if rep.TierCfg.Name == name {
+			t := rep.TierCfg
 			return &t
 		}
 	}
 	return nil
 }
 
-func (r ReplicaList) TierByPriority(priority int) *ModelTier {
+func (r ReplicaList) TierByPriority(priority int) *TierConfig {
 	for _, rep := range r.Replicas {
-		if rep.Tier.Priority == priority {
-			t := rep.Tier
+		if rep.TierCfg.Priority == priority {
+			t := rep.TierCfg
 			return &t
 		}
 	}
 	return nil
 }
 
-func (r ReplicaList) ReplicasForTier(name string) []Replica {
+func (r ReplicaList) ReplicasForTier(name ModelTier) []Replica {
 	var result []Replica
 	for _, rep := range r.Replicas {
-		if rep.Tier.Name == name {
+		if rep.Tier == name {
 			result = append(result, rep)
 		}
 	}
 	return result
 }
 
-// IsEscalation returns true if moving from current to candidate is an upgrade.
-// Used for tier lock-up: tiers only go up, never down.
-func IsEscalation(current, candidate ModelTier) bool {
-	return candidate.Priority > current.Priority
+// PriorityOf returns the configured priority of a tier name, or -1 if the
+// tier is unknown to this replica list.
+func (r ReplicaList) PriorityOf(name ModelTier) int {
+	for _, rep := range r.Replicas {
+		if rep.TierCfg.Name == name {
+			return rep.TierCfg.Priority
+		}
+	}
+	return -1
+}
+
+// IsEscalation reports whether moving from current to candidate is an
+// upgrade (a higher-priority tier). Used for tier lock-up: a conversation's
+// tier only ever goes up.
+func (r ReplicaList) IsEscalation(current, candidate ModelTier) bool {
+	return r.PriorityOf(candidate) > r.PriorityOf(current)
+}
+
+// HigherTier returns whichever of a or b has the higher priority. An unknown
+// or empty tier loses to a known one; if both are unknown, b is returned.
+func (r ReplicaList) HigherTier(a, b ModelTier) ModelTier {
+	if r.PriorityOf(a) >= r.PriorityOf(b) {
+		return a
+	}
+	return b
 }
