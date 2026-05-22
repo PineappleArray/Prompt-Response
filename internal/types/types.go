@@ -1,30 +1,52 @@
 package types
 
-type ModelTier string
+import (
+	"time"
+)
 
-type TierConfig struct {
-    Name       string          `yaml:"name"`
-    Priority   int             `yaml:"priority"`
-    ScoreRange [2]float64      `yaml:"score_range"`
-    Models     []ReplicaConfig `yaml:"models"`
+type ModelTier struct {
+	Name       string
+	Priority   int
+	ScoreRange [2]float64
 }
 
-type ReplicaConfig struct {
-    ID    string `yaml:"id"`
-    URL   string `yaml:"url"`
-    Model string `yaml:"model"`
+type Replica struct {
+	ID    string
+	URL   string
+	Model string
+	Tier  ModelTier
+}
+
+type ReplicaHealth struct {
+	ReplicaID  string
+	Healthy    bool
+	KVUsage    float64
+	QueueDepth int
+	LastPoll   time.Time
+}
+
+type ReplicaList struct {
+	Replicas []Replica
 }
 
 func (t ModelTier) String() string {
-	return string(t)
+	return t.Name
 }
 
-func 
-
-func ValidTier(t ModelTier) bool {
-	switch t {
-	case TierSmall, TierMedium, TierLarge, TierCode:
-		return true
+func (r ReplicaList) ValidTier(t ModelTier) bool {
+	for _, replica := range r.Replicas {
+		if replica.Tier.Name == t.Name {
+			return true
+		}
 	}
 	return false
+}
+
+func compareTiers(a, b ModelTier) int {
+	if a.Priority < b.Priority {
+		return -1
+	} else if a.Priority > b.Priority {
+		return 1
+	}
+	return 0
 }

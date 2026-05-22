@@ -58,11 +58,24 @@ type ClassifierWeights struct {
 	OutputLength float64 `yaml:"output_length"`
 }
 
+type ReplicaConfig struct {
+	ID    string `yaml:"id"`
+	URL   string `yaml:"url"`
+	Model string `yaml:"model"`
+}
+
+type ModelTier struct {
+	Name       string          `yaml:"name"`
+	Priority   int             `yaml:"priority"`
+	ScoreRange [2]float64      `yaml:"score_range"`
+	Models     []ReplicaConfig `yaml:"models"`
+}
+
 type Replica struct {
-	ID    string          `yaml:"id"`
-	URL   string          `yaml:"url"`
-	Model string          `yaml:"model"`
-	Tier  types.ModelTier `yaml:"tier"`
+	ID    string    `yaml:"id"`
+	URL   string    `yaml:"url"`
+	Model string    `yaml:"model"`
+	Tier  ModelTier `yaml:"tier"`
 }
 
 type Redis struct {
@@ -256,4 +269,10 @@ func validate(cfg *Config) error {
 		return fmt.Errorf("stream done_timeout must be non-negative, got %v", cfg.Stream.DoneTimeout)
 	}
 	return nil
+}
+
+func (cfg *Config) ToReplicaList() types.ReplicaList {
+	return types.ReplicaList{
+		Replicas: cfg.Replicas,
+	}
 }

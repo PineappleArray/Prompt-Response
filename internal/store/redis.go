@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"time"
 
+	"prompt-response/internal/config"
 	"prompt-response/internal/types"
 
 	"github.com/redis/go-redis/v9"
@@ -81,15 +82,13 @@ func (r *RedisStore) addSession(sessionID string, userID string, model types.Mod
 	pipe := r.client.Pipeline()
 
 	tierCmd := pipe.Get(ctx, fmt.Sprintf("sessionID:%s", sessionID))
-	affinityCmd := pipe.Get(ctx, fmt.Sprintf("pfx:%s", prefixHash))
 	_, err := pipe.Exec(ctx)
 
 	tier, err := tierCmd.Result()
 	if err == redis.Nil {
-
 		pipe.HSet(ctx, key, map[string]interface{}{
 			"user_id": userID,
-			"model":   string(model),
+			"model":   model.Name,
 		})
 		pipe.Expire(ctx, key, ttl)
 		if _, err := pipe.Exec(ctx); err != nil {
@@ -97,6 +96,16 @@ func (r *RedisStore) addSession(sessionID string, userID string, model types.Mod
 			return false, nil
 		}
 		return true, nil
+	} else {
+		cfg, _ := config.Load("config.yaml")
+		replicas := cfg.ToReplicaList()
+		if replicas.ValidTier(model) == false {
+			slog.Warn("session model tier mismatch", "key", key, "existing", tier, "new", model)
+		} else {
+			slog.Debug("session already exists with same model tier", "key", key, "model", model)
+			if types.compareTiers(tier, model) > 0 {
+			}
+		}
 	}
 	return false, err
 }
