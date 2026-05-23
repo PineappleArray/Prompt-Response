@@ -788,13 +788,13 @@ func TestToReplicaList_SmallestAndLargest(t *testing.T) {
 	rl := cfg.ToReplicaList()
 
 	smallest := rl.SmallestTier()
-	if smallest.Name != "small" {
-		t.Errorf("expected smallest tier 'small', got %q", smallest.Name)
+	if smallest != "small" {
+		t.Errorf("expected smallest tier 'small', got %q", smallest)
 	}
 
 	largest := rl.LargestTier()
-	if largest.Name != "large" {
-		t.Errorf("expected largest tier 'large', got %q", largest.Name)
+	if largest != "large" {
+		t.Errorf("expected largest tier 'large', got %q", largest)
 	}
 }
 
@@ -830,8 +830,8 @@ redis:
 
 	rl := cfg.ToReplicaList()
 	// First replica should be from the lowest priority tier
-	if rl.Replicas[0].Tier.Priority != 1 {
-		t.Errorf("expected first replica from priority 1, got %d", rl.Replicas[0].Tier.Priority)
+	if rl.Replicas[0].TierCfg.Priority != 1 {
+		t.Errorf("expected first replica from priority 1, got %d", rl.Replicas[0].TierCfg.Priority)
 	}
 }
 

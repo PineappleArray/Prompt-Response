@@ -10,12 +10,6 @@ import (
 	"time"
 )
 
-// ModelTier represents the target model tier for routing.
-// In your real codebase this is types.ModelTier — keeping it local here
-// so the test package compiles standalone. Replace with the import when
-// you drop this into internal/classifier/.
-type ModelTier = string
-
 type ClassifyResponse struct {
 	Tier        types.ModelTier    `json:"tier"`
 	Score       float64            `json:"score"`
@@ -35,11 +29,12 @@ type Router struct {
 }
 
 type Request struct {
-	SystemPrompt string `json:"system_prompt"`
-	UserMessage  string `json:"user_message"`
-	TokenCount   int    `json:"token_count"`
-	HasCode      bool   `json:"has_code"`
-	ConvTurns    int    `json:"conv_turns"`
+	SystemPrompt string          `json:"system_prompt"`
+	UserMessage  string          `json:"user_message"`
+	TokenCount   int             `json:"token_count"`
+	HasCode      bool            `json:"has_code"`
+	ConvTurns    int             `json:"conv_turns"`
+	CurrentTier  types.ModelTier `json:"current_tier"`
 }
 
 type Response struct {
@@ -55,7 +50,7 @@ func NewRouter(endpoint string) *Router {
 	return &Router{
 		mlEndpoint: endpoint,
 		httpClient: &http.Client{
-			Timeout: 30 * time.Second,
+			Timeout: 2 * time.Second,
 		},
 	}
 }
