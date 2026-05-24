@@ -150,3 +150,7 @@ keywords:
   code: ["code", "program", "script", "function", "class", "def", "import"]
   complexity: ["step by step", "edge case", "production", "distributed", "scale", "optimize"]
   reasoning: ["explain", "reason", "think", "why", "how", "what if", "analyze", "compare", "contrast", "evaluate", "justify", "prove", "disprove"]
+
+repetition:
+  frequency_penalty: 0.2
+  presence_penalty: 0.1

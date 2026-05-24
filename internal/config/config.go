@@ -30,6 +30,7 @@ type Config struct {
 	RateLimit    RateLimit         `yaml:"ratelimit"`
 	Audit        Audit             `yaml:"audit"`
 	Usage        Usage             `yaml:"usage"`
+	Repetition   Repetition        `yaml:"repetition"`
 	Stream       Stream            `yaml:"stream"`
 	PrefixLen    int               `yaml:"prefix_len"`
 	AffinityTTL  time.Duration     `yaml:"affinity_ttl"`
@@ -51,6 +52,11 @@ type KeywordSets struct {
 	Code       []string `yaml:"code"`
 	Reasoning  []string `yaml:"reasoning"`
 	Complexity []string `yaml:"complexity"`
+}
+
+type Repetition struct {
+	FrequencyPenalty *float64 `yaml:"frequency_penalty"`
+	PresencePenalty  *float64 `yaml:"presence_penalty"`
 }
 
 type Circuit struct {
@@ -284,6 +290,14 @@ func applyDefaults(cfg *Config) {
 	if cfg.Stream.StallTimeout == 0 {
 		cfg.Stream.StallTimeout = 15 * time.Second
 	}
+	if cfg.Repetition.FrequencyPenalty == nil {
+		defaultFreq := 0.2
+		cfg.Repetition.FrequencyPenalty = &defaultFreq
+	}
+	if cfg.Repetition.PresencePenalty == nil {
+		defaultPres := 0.1
+		cfg.Repetition.PresencePenalty = &defaultPres
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -403,6 +417,18 @@ func validate(cfg *Config) error {
 	}
 	if cfg.Stream.DoneTimeout < 0 {
 		return fmt.Errorf("stream done_timeout must be non-negative, got %v", cfg.Stream.DoneTimeout)
+	}
+	if cfg.Repetition.FrequencyPenalty != nil {
+		fp := *cfg.Repetition.FrequencyPenalty
+		if fp < -2.0 || fp > 2.0 {
+			return fmt.Errorf("repetition frequency_penalty must be in [-2.0, 2.0], got %v", fp)
+		}
+	}
+	if cfg.Repetition.PresencePenalty != nil {
+		pp := *cfg.Repetition.PresencePenalty
+		if pp < -2.0 || pp > 2.0 {
+			return fmt.Errorf("repetition presence_penalty must be in [-2.0, 2.0], got %v", pp)
+		}
 	}
 	return nil
 }
