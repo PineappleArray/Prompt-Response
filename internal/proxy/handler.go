@@ -125,6 +125,8 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	body = h.injectDefaults(body)
+
 	if len(req.Messages) == 0 {
 		writeError(w, r, http.StatusBadRequest, "invalid_request", "messages array is required and must not be empty")
 		return
@@ -760,4 +762,30 @@ func hasCodeBlock(text string) bool {
 		strings.Contains(text, "func ") ||
 		strings.Contains(text, "def ") ||
 		strings.Contains(text, "class ")
+}
+
+func (h *Handler) injectDefaults(body []byte) []byte {
+	var parsed map[string]any
+	if err := json.Unmarshal(body, &parsed); err != nil {
+		return body
+	}
+
+	modified := false
+	if _, ok := parsed["frequency_penalty"]; !ok && h.cfg.Repetition.FrequencyPenalty != nil {
+		parsed["frequency_penalty"] = *h.cfg.Repetition.FrequencyPenalty
+		modified = true
+	}
+	if _, ok := parsed["presence_penalty"]; !ok && h.cfg.Repetition.PresencePenalty != nil {
+		parsed["presence_penalty"] = *h.cfg.Repetition.PresencePenalty
+		modified = true
+	}
+
+	if !modified {
+		return body
+	}
+	out, err := json.Marshal(parsed)
+	if err != nil {
+		return body
+	}
+	return out
 }
