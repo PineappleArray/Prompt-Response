@@ -1,1 +1,3 @@
-Add a postgre sql db that will log total usage as well as change the hashing system to get rid of the system prompt increase the penalty for recomputing
+Add a postgre sql db that will log total usage as well as change the hashing system to get rid of the system prompt increase the penalty for recomputing.
+Update the tests for this project so I can have a full benchmark of the router. Add a cmd line prompt that will output code ie a small bar at the bottom for prompts and
+the top portion for the code to run.
