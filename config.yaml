@@ -92,6 +92,9 @@ weights:
   queue_depth: 0.25
   kv_cache_pressure: 0.15
   baseline: 0.10
+  # Subtracted on a prefix-cache miss. Raises the cost of routing a
+  # request to a replica that would have to recompute the prefix.
+  miss_penalty: 0.25
 
 classifier:
   length: 0.20

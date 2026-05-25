@@ -89,6 +89,11 @@ type Weights struct {
 	QueueDepth      float64 `yaml:"queue_depth"`
 	KVCachePressure float64 `yaml:"kv_cache_pressure"`
 	Baseline        float64 `yaml:"baseline"`
+	// MissPenalty is subtracted from a candidate's score when the prefix
+	// cache does not point to that replica. Raising it makes the scorer
+	// more reluctant to send a request to a replica that would have to
+	// recompute the prefix from scratch.
+	MissPenalty float64 `yaml:"miss_penalty"`
 }
 
 type Auth struct {
@@ -400,7 +405,8 @@ func validate(cfg *Config) error {
 		return fmt.Errorf("max_queue must be positive, got %v", cfg.MaxQueue)
 	}
 	if cfg.Weights.CacheAffinity < 0 || cfg.Weights.QueueDepth < 0 ||
-		cfg.Weights.KVCachePressure < 0 || cfg.Weights.Baseline < 0 {
+		cfg.Weights.KVCachePressure < 0 || cfg.Weights.Baseline < 0 ||
+		cfg.Weights.MissPenalty < 0 {
 		return fmt.Errorf("scoring weights must be non-negative")
 	}
 	if cfg.Circuit.ErrorThreshold < 0 || cfg.Circuit.ErrorThreshold > 1 {

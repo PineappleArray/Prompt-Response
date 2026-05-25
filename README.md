@@ -77,7 +77,7 @@ the classifier.
 │  ┌───────────────────────────────────────────────────────────┐   │
 │  │                    Proxy Handler                          │   │
 │  │  Parse OpenAI JSON ─► extract system prompt + user msg    │   │
-│  │  Hash system prompt (xxhash64) for cache affinity key     │   │
+│  │  Hash first user message (xxhash64) for affinity key      │   │
 │  │  Count conversation turns, detect code blocks             │   │
 │  │                         │                                 │   │
 │  │                         ▼                                 │   │
@@ -128,7 +128,7 @@ Simple factual queries ("what is 2+2") don't need a 7B parameter model. The clas
 The poller scrapes `vllm:gpu_cache_usage_perc` from each replica. At 90%+ utilization, vLLM begins evicting cached prefixes and preempting running requests. Cache affinity and KV pressure are complementary signals: affinity tries to reuse cached prefixes, but pressure prevents routing to a replica where the prefix would be evicted before the request arrives — routing more traffic to a pressured replica destroys the very cache hits the affinity system built.
 
 ### Why Prefix-Cache Affinity
-System prompts are hashed (xxhash64) and mapped to replicas via Redis (`pfx:<hash> → replica_id`). Requests sharing the same system prompt route to the same replica, maximizing vLLM's automatic prefix cache reuse. TTL-based expiry handles replica changes gracefully.
+The first user message of each request is hashed (xxhash64) and mapped to a replica via Redis (`pfx:<hash> → replica_id`). The first user message is the only message guaranteed to be present and unchanged on every turn of a conversation, so all turns of one conversation route to the same replica and keep its KV cache warm. TTL-based expiry handles replica changes gracefully. A `weights.miss_penalty` knob lets ops further raise the cost of routing to a replica that doesn't already hold the prefix.
 
 ### Why SJF-Inspired Output Estimation
 Inspired by [research on Shortest-Job-First scheduling for LLM inference](https://arxiv.org/abs/2408.15792) showing up to 5.3x latency reduction, the classifier estimates relative output length using heuristic patterns. Requests matching "what is", "yes or no" are ranked short-output; "list all", "implement" are ranked long-output. Exact token prediction is infeasible — relative ranking is what matters.
@@ -153,9 +153,12 @@ score(replica) = w_affinity × cache_hit(0|1)
                + w_queue   × max(0, 1 − queue_depth / max_queue)
                + w_kv      × max(0, 1 − kv_cache_utilization)
                + w_base    × 0.5
+               − miss_penalty  (when cache_hit == 0)
 ```
 
-Default weights: `affinity=0.50  queue=0.25  kv_pressure=0.15  baseline=0.10`
+Default weights: `affinity=0.50  queue=0.25  kv_pressure=0.15  baseline=0.10  miss_penalty=0.25`
+
+`miss_penalty` raises the cost of routing to a replica that doesn't already hold the request's prefix — useful when KV-cache recomputation is expensive and you want stronger affinity stickiness. Set it to `0` for the original behaviour.
 
 Tier filtering happens before scoring — replicas matching the requested tier are scored first. If no tier match is healthy, fallback to the best replica of any tier.
 

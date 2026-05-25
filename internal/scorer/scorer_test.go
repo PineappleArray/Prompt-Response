@@ -25,6 +25,31 @@ type stubPoller struct {
 
 func (s *stubPoller) Snapshot() map[string]poller.State { return s.states }
 
+func TestScore_MissPenalty(t *testing.T) {
+	cases := []struct {
+		name        string
+		missPenalty float64
+		wantMinGap  float64
+	}{
+		{"penalty off — gap is just the affinity weight", 0.0, 0.50},
+		{"penalty bumps the gap by miss_penalty", 0.30, 0.80},
+		{"large penalty drives miss score negative", 1.00, 1.50},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			w := defaultWeights()
+			w.MissPenalty = tc.missPenalty
+			s := New(nil, store.NewMemory(), poller.New(nil, 0), w, 5*time.Minute, 20)
+
+			gap := s.score(true, 0, 0) - s.score(false, 0, 0)
+			if gap < tc.wantMinGap-1e-9 {
+				t.Errorf("hit-vs-miss gap = %.4f, want >= %.4f", gap, tc.wantMinGap)
+			}
+		})
+	}
+}
+
 func TestPick_TierMatchedPreferred(t *testing.T) {
 	replicas := []config.Replica{
 		{ID: "small-1", URL: "http://s1", Tier: types.TierSmall},
