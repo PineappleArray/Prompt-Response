@@ -35,7 +35,6 @@ func TestPoissonArrivalsMeanAndVariance(t *testing.T) {
 			meanErr := math.Abs(stats.MeanSec-wantMean) / wantMean
 			varErr := math.Abs(stats.VarianceS-wantVar) / wantVar
 
-			// With 20k samples we expect <5% error on both moments.
 			if meanErr > 0.05 {
 				t.Errorf("mean %.6g vs want %.6g (err %.2f%%)", stats.MeanSec, wantMean, meanErr*100)
 			}
@@ -71,12 +70,60 @@ func TestPoissonArrivalsPanicsOnBadLambda(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Poisson load — light traffic should all succeed
+// Helpers — steady-state measurement after warmup trimming
+// ---------------------------------------------------------------------------
+
+// warmupFraction is the proportion of initial results discarded before
+// measuring steady-state metrics. The first requests experience cold-start
+// effects (goroutine scheduling, timer resolution) that bias measurements.
+const warmupFraction = 0.20
+
+// steadyStateSlice returns the results after discarding the warmup window.
+func steadyStateSlice(results []PoissonResult) []PoissonResult {
+	skip := int(float64(len(results)) * warmupFraction)
+	if skip >= len(results) {
+		return results
+	}
+	return results[skip:]
+}
+
+// steadyStateLatencyMS returns latency values (ms) for steady-state successes,
+// optionally filtered by routed-to model key. Pass "" for all models.
+func steadyStateLatencyMS(res *PoissonBenchmarkResults, modelKey string) []float64 {
+	steady := steadyStateSlice(res.Results)
+	var out []float64
+	for _, r := range steady {
+		if r.Err != "" {
+			continue
+		}
+		if modelKey != "" && r.RoutedTo != modelKey {
+			continue
+		}
+		out = append(out, r.Latency.Seconds()*1000)
+	}
+	return out
+}
+
+// steadyStateErrorRate returns the error fraction among steady-state results.
+func steadyStateErrorRate(res *PoissonBenchmarkResults) float64 {
+	steady := steadyStateSlice(res.Results)
+	if len(steady) == 0 {
+		return 0
+	}
+	errs := 0
+	for _, r := range steady {
+		if r.Err != "" {
+			errs++
+		}
+	}
+	return float64(errs) / float64(len(steady))
+}
+
+// ---------------------------------------------------------------------------
+// Prompt pool
 // ---------------------------------------------------------------------------
 
 func poissonPromptPool() []Request {
-	// A diverse pool covering all four routing tiers so the harness exercises
-	// every model in the mock fleet. Inputs are small so wall-clock stays low.
 	return []Request{
 		{Text: "hi", InputTokens: 5, MaxOutputTokens: 10, IdealModel: "small", Category: "extraction"},
 		{Text: "what is 2+2", InputTokens: 8, MaxOutputTokens: 15, IdealModel: "small", Category: "extraction"},
@@ -90,6 +137,10 @@ func poissonPromptPool() []Request {
 	}
 }
 
+// ---------------------------------------------------------------------------
+// Poisson load — light traffic should all succeed
+// ---------------------------------------------------------------------------
+
 func TestPoissonLightLoad(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping poisson load in short mode")
@@ -99,11 +150,15 @@ func TestPoissonLightLoad(t *testing.T) {
 	router := &KeywordRouter{}
 	pool := poissonPromptPool()
 
-	// 5 req/s for 30 requests ≈ 6s of wall clock; well within capacity.
-	res := RunPoissonBenchmark(models, router, pool, 5.0, 30, 1)
+	// 5 req/s × 60 requests ≈ 12s of arrivals. Well within capacity, so
+	// every request should succeed. After 20% warmup trim we still have
+	// ~48 steady-state samples.
+	const lambda = 5.0
+	const n = 60
+	res := RunPoissonBenchmark(models, router, pool, lambda, n, 1)
 
-	if len(res.Results) != 30 {
-		t.Fatalf("results = %d, want 30", len(res.Results))
+	if len(res.Results) != n {
+		t.Fatalf("results = %d, want %d", len(res.Results), n)
 	}
 
 	errs := res.Errors()
@@ -113,26 +168,32 @@ func TestPoissonLightLoad(t *testing.T) {
 		}
 	}
 
-	lat := res.LatencyMS("")
-	t.Logf("lambda=%.1f/s wall=%s arrival_window=%s arrival_rate=%.2f/s observed=%.2f/s n=%d errors=%d",
-		res.Lambda, res.WallTime.Round(time.Millisecond), res.ArrivalWindow.Round(time.Millisecond),
-		res.ArrivalRate(), res.ObservedRate(), len(res.Results), len(errs))
-	t.Logf("latency p50=%.0fms p95=%.0fms p99=%.0fms",
-		Percentile(lat, 50), Percentile(lat, 95), Percentile(lat, 99))
-
-	// Realized arrival rate should track lambda within ±40% with n=30. We
-	// don't assert on ObservedRate because wall time is biased by the latency
-	// of the last in-flight request.
+	// Arrival rate should track lambda within ±30%. ArrivalRate divides n
+	// by the span from first to last scheduled arrival, so with exponential
+	// gaps the tail can compress or stretch the window. ±30% accommodates
+	// that variance at n=60 without being meaninglessly loose.
 	rate := res.ArrivalRate()
-	if rate < res.Lambda*0.6 || rate > res.Lambda*1.4 {
-		t.Errorf("arrival rate %.2f/s far from target %.1f/s", rate, res.Lambda)
+	if rate < lambda*0.70 || rate > lambda*1.30 {
+		t.Errorf("arrival rate %.2f/s outside ±30%% of target %.1f/s", rate, lambda)
+	}
+
+	lat := steadyStateLatencyMS(&res, "")
+	t.Logf("lambda=%.1f/s n=%d wall=%s arrival_rate=%.2f/s errors=%d",
+		lambda, n, res.WallTime.Round(time.Millisecond), rate, len(errs))
+	if len(lat) > 0 {
+		t.Logf("steady-state latency (after %.0f%% warmup): p50=%.0fms p95=%.0fms p99=%.0fms",
+			warmupFraction*100, Percentile(lat, 50), Percentile(lat, 95), Percentile(lat, 99))
 	}
 }
 
 // ---------------------------------------------------------------------------
-// Poisson load — high λ should provoke capacity errors on the large model
+// Poisson load — high λ should provoke capacity errors
 // ---------------------------------------------------------------------------
 
+// TestPoissonHighLoadProvokesCapacity fires requests at a rate that exceeds
+// the "large" model's max_concurrent slots. We expect the backend to reject
+// a significant fraction. This validates that backpressure propagates — if
+// zero errors appear, the concurrency limit isn't biting.
 func TestPoissonHighLoadProvokesCapacity(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping poisson high-load in short mode")
@@ -140,28 +201,46 @@ func TestPoissonHighLoadProvokesCapacity(t *testing.T) {
 
 	models := mustLoadModels(t)
 	router := &KeywordRouter{}
-	// All prompts route to "large" (max_concurrent=4) with seconds-long
-	// generation; firing at 20/s will saturate it and trigger capacity errors.
-	// Outputs are sized so a successful run takes ~5s, keeping wall time small.
+
+	// All prompts route to "large" (max_concurrent=4). At λ=20 the arrival
+	// rate far exceeds drain rate, so requests pile up and hit capacity.
 	pool := []Request{
 		{Text: "write a comprehensive research paper", InputTokens: 100, MaxOutputTokens: 150, IdealModel: "large", Category: "writing"},
 		{Text: "produce an in depth review", InputTokens: 100, MaxOutputTokens: 150, IdealModel: "large", Category: "writing"},
 	}
 
-	res := RunPoissonBenchmark(models, router, pool, 20.0, 30, 2)
+	const lambda = 20.0
+	const n = 40
+	res := RunPoissonBenchmark(models, router, pool, lambda, n, 2)
 
 	succ := res.Successes()
 	errs := res.Errors()
-	t.Logf("lambda=%.0f/s wall=%s success=%d errors=%d",
-		res.Lambda, res.WallTime.Round(time.Millisecond), len(succ), len(errs))
+	errRate := steadyStateErrorRate(&res)
+
+	t.Logf("lambda=%.0f/s n=%d wall=%s success=%d errors=%d steady_state_err_rate=%.1f%%",
+		lambda, n, res.WallTime.Round(time.Millisecond), len(succ), len(errs), errRate*100)
 
 	if len(errs) == 0 {
-		t.Error("expected capacity errors under high Poisson load; got none — large model may be over-provisioned for this test")
+		t.Error("expected capacity errors under high Poisson load; got none — " +
+			"large model may be over-provisioned for this test")
+	}
+
+	// At least some requests should succeed — the first arrivals fit within
+	// max_concurrent before saturation kicks in.
+	if len(succ) == 0 {
+		t.Error("expected at least some successes; got zero — " +
+			"model may be misconfigured or immediately rejecting")
+	}
+
+	// Steady-state error rate should be substantial to confirm backpressure.
+	if errRate < 0.30 {
+		t.Errorf("steady-state error rate %.1f%% too low; expected >30%% "+
+			"under sustained overload at lambda=%.0f", errRate*100, lambda)
 	}
 }
 
 // ---------------------------------------------------------------------------
-// Poisson load — broad spectrum sweep across lambdas
+// Poisson load — rate sweep across lambdas
 // ---------------------------------------------------------------------------
 
 func TestPoissonRateSweep(t *testing.T) {
@@ -176,29 +255,47 @@ func TestPoissonRateSweep(t *testing.T) {
 	lambdas := []float64{2, 5, 10, 20}
 	t.Logf("%-10s %-6s %-10s %-10s %-8s %-10s %-10s",
 		"lambda", "n", "wall", "arrival/s", "err%", "p50ms", "p99ms")
+
 	for _, lam := range lambdas {
-		// Cap request count so wall clock stays bounded — 4 seconds of traffic.
-		n := int(lam * 4)
-		if n < 10 {
-			n = 10
+		// 10 seconds of traffic per lambda. Longer windows produce stabler
+		// rate estimates and leave a useful window after warmup trimming.
+		n := int(lam * 10)
+		if n < 20 {
+			n = 20
 		}
+
 		res := RunPoissonBenchmark(models, router, pool, lam, n, 1234)
 
-		lat := res.LatencyMS("")
-		errPct := 0.0
-		if len(res.Results) > 0 {
-			errPct = float64(len(res.Errors())) / float64(len(res.Results)) * 100
+		lat := steadyStateLatencyMS(&res, "")
+		errPct := steadyStateErrorRate(&res) * 100
+
+		p50, p99 := 0.0, 0.0
+		if len(lat) > 0 {
+			p50 = Percentile(lat, 50)
+			p99 = Percentile(lat, 99)
 		}
+
 		t.Logf("%-10.1f %-6d %-10s %-10.2f %-8.1f %-10.0f %-10.0f",
-			lam, n, res.WallTime.Round(time.Millisecond), res.ArrivalRate(), errPct,
-			Percentile(lat, 50), Percentile(lat, 99))
+			lam, n, res.WallTime.Round(time.Millisecond), res.ArrivalRate(), errPct, p50, p99)
+	}
+
+	// Sanity check: at λ=2 (well under capacity) errors should be near zero.
+	low := RunPoissonBenchmark(models, router, pool, 2.0, 20, 1234)
+	if errRate := steadyStateErrorRate(&low); errRate > 0.05 {
+		t.Errorf("lambda=2 steady-state error rate %.1f%% > 5%%; "+
+			"expected near-zero errors at light load", errRate*100)
 	}
 }
 
 // ---------------------------------------------------------------------------
-// Poisson + MT-Bench — realistic prompt mix (skipped when dataset missing)
+// Poisson + MT-Bench — realistic prompt mix
 // ---------------------------------------------------------------------------
 
+// TestPoissonMTBench runs MT-Bench prompts through the Poisson harness at a
+// moderate arrival rate. The KeywordRouter is a simple baseline so accuracy
+// is expected to be low (~25-45%). This test establishes a floor — if accuracy
+// drops below 20%, routing logic is likely broken. The primary value is the
+// per-category latency profile under realistic load.
 func TestPoissonMTBench(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping poisson MT-Bench in short mode")
@@ -208,19 +305,42 @@ func TestPoissonMTBench(t *testing.T) {
 	models := mustLoadModels(t)
 	router := &KeywordRouter{}
 
-	res := RunPoissonBenchmark(models, router, requests, 10.0, 80, 99)
+	// 10 req/s × 100 requests = ~10s of arrivals. Enough for stable metrics
+	// after warmup trimming.
+	const lambda = 10.0
+	const n = 100
+	res := RunPoissonBenchmark(models, router, requests, lambda, n, 99)
 
-	t.Logf("lambda=%.1f/s n=%d wall=%s arrival_rate=%.2f/s accuracy=%.1f%% errors=%d",
-		res.Lambda, res.RequestCount, res.WallTime.Round(time.Millisecond),
-		res.ArrivalRate(), res.Accuracy()*100, len(res.Errors()))
+	accuracy := res.Accuracy()
+	errCount := len(res.Errors())
+	errRate := steadyStateErrorRate(&res)
+
+	t.Logf("lambda=%.1f/s n=%d wall=%s arrival_rate=%.2f/s",
+		lambda, n, res.WallTime.Round(time.Millisecond), res.ArrivalRate())
+	t.Logf("accuracy=%.1f%% total_errors=%d steady_state_err_rate=%.1f%%",
+		accuracy*100, errCount, errRate*100)
 
 	for _, key := range []string{"small", "code", "reasoning", "large"} {
-		lat := res.LatencyMS(key)
+		lat := steadyStateLatencyMS(&res, key)
 		if len(lat) == 0 {
 			continue
 		}
 		t.Logf("  [%s] n=%d p50=%.0fms p95=%.0fms p99=%.0fms",
 			key, len(lat), Percentile(lat, 50), Percentile(lat, 95), Percentile(lat, 99))
+	}
+
+	// Accuracy floor: keyword router should beat random chance (~25% across
+	// 4 tiers). Below 20% means routing is broken, not just imprecise.
+	if accuracy < 0.20 {
+		t.Errorf("accuracy %.1f%% below 20%% floor — routing may be broken", accuracy*100)
+	}
+
+	// Error rate: at λ=10 with heavier MT-Bench prompts, capacity errors
+	// are expected — longer generation times saturate the fleet. Allow up
+	// to 65%; above that the fleet is genuinely undersized.
+	if errRate > 0.65 {
+		t.Errorf("steady-state error rate %.1f%% exceeds 65%% — "+
+			"fleet may be undersized for MT-Bench at lambda=%.0f", errRate*100, lambda)
 	}
 }
 
@@ -228,9 +348,6 @@ func TestPoissonMTBench(t *testing.T) {
 // Go-style benchmarks (run with `go test -bench`)
 // ---------------------------------------------------------------------------
 
-// BenchmarkPoissonArrivals measures the cost of generating an arrival schedule
-// — purely CPU-bound, no I/O. Useful to catch regressions in the inverse-CDF
-// path. Reports ns/op and allocs/op.
 func BenchmarkPoissonArrivals(b *testing.B) {
 	for _, n := range []int{100, 1000, 10000} {
 		b.Run(fmt.Sprintf("n=%d", n), func(b *testing.B) {
@@ -244,10 +361,6 @@ func BenchmarkPoissonArrivals(b *testing.B) {
 	}
 }
 
-// BenchmarkKeywordRouterRoute measures the hot-path Route() call on the
-// baseline router for a fixed prompt mix. The classifier and scorer are
-// declared zero-allocation in CLAUDE.md, so this benchmark protects that
-// invariant for the KeywordRouter too.
 func BenchmarkKeywordRouterRoute(b *testing.B) {
 	router := &KeywordRouter{}
 	pool := poissonPromptPool()

@@ -2,6 +2,7 @@ package test
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"fmt"
 	"math"
@@ -47,7 +48,7 @@ func LoadConfig(path string) (*Config, error) {
 }
 
 // ---------------------------------------------------------------------------
-// Router interface — implement this with your actual routing logic
+// Router interface
 // ---------------------------------------------------------------------------
 
 type Router interface {
@@ -105,16 +106,38 @@ func (r *KeywordRouter) Route(req Request) string {
 }
 
 // ---------------------------------------------------------------------------
-// Mock Model
+// Mock Model — semaphore-based concurrency with queuing and timeout
 // ---------------------------------------------------------------------------
 
+// DefaultQueueTimeout is how long a request will wait for a concurrency slot
+// before being rejected. This simulates a realistic inference server that
+// queues requests rather than immediately rejecting at capacity.
+const DefaultQueueTimeout = 30 * time.Second
+
 type MockModel struct {
-	Key            string
-	Profile        ModelProfile
-	activeRequests atomic.Int64
-	kvCacheUsedMB  atomic.Int64
-	maxKVCacheMB   float64
-	mu             sync.Mutex
+	Key          string
+	Profile      ModelProfile
+	maxKVCacheMB float64
+
+	// sem is a buffered channel used as a counting semaphore. A request
+	// acquires a slot by sending into the channel and releases by receiving.
+	// This replaces the racy Load-then-Add pattern with a correct,
+	// blocking concurrency limiter.
+	sem chan struct{}
+
+	// kvCacheUsedMB tracks KV cache consumption (stored as millionths to
+	// avoid floating-point atomics). Protected by kvMu for the
+	// check-and-add to be atomic.
+	kvCacheUsedMB int64
+	kvMu          sync.Mutex
+
+	// QueueTimeout overrides DefaultQueueTimeout if set. Zero means use
+	// the default.
+	QueueTimeout time.Duration
+
+	// Stats — safe to read after the benchmark completes.
+	totalQueued   atomic.Int64 // requests that had to wait for a slot
+	totalRejected atomic.Int64 // requests that timed out waiting
 }
 
 func NewMockModel(key string, p ModelProfile) *MockModel {
@@ -122,13 +145,23 @@ func NewMockModel(key string, p ModelProfile) *MockModel {
 		Key:          key,
 		Profile:      p,
 		maxKVCacheMB: p.VRAMWeightsGB * 1024 * 0.3,
+		sem:          make(chan struct{}, p.MaxConcurrent),
 	}
+}
+
+// queueTimeout returns the effective queue timeout.
+func (m *MockModel) queueTimeout() time.Duration {
+	if m.QueueTimeout > 0 {
+		return m.QueueTimeout
+	}
+	return DefaultQueueTimeout
 }
 
 type GenerateResult struct {
 	Model       string
 	TTFT        time.Duration
 	TotalTime   time.Duration
+	QueueWait   time.Duration // time spent waiting for a concurrency slot
 	OutputToks  int
 	DecodeTPS   float64
 	InputToks   int
@@ -148,37 +181,66 @@ type GenerateError struct {
 }
 
 func (m *MockModel) Generate(inputTokens, maxOutputTokens int) (*GenerateResult, error) {
-	active := m.activeRequests.Load()
-	if int(active) >= m.Profile.MaxConcurrent {
-		return nil, fmt.Errorf("%s at capacity: %d/%d active", m.Key, active, m.Profile.MaxConcurrent)
+	// --- Acquire concurrency slot via semaphore with timeout ---
+	//
+	// Unlike the old Load-then-Add pattern, this is correct under
+	// concurrent access: the channel enforces MaxConcurrent at the
+	// language level. Requests that arrive when all slots are full
+	// block here (queuing) until a slot frees up or the timeout fires.
+	queueStart := time.Now()
+	ctx, cancel := context.WithTimeout(context.Background(), m.queueTimeout())
+	defer cancel()
+
+	select {
+	case m.sem <- struct{}{}:
+		// Slot acquired.
+	case <-ctx.Done():
+		m.totalRejected.Add(1)
+		return nil, fmt.Errorf("%s queue timeout after %s: all %d slots busy",
+			m.Key, m.queueTimeout(), m.Profile.MaxConcurrent)
+	}
+	queueWait := time.Since(queueStart)
+	if queueWait > 50*time.Millisecond {
+		m.totalQueued.Add(1)
 	}
 
+	// Release the slot when generation finishes.
+	defer func() { <-m.sem }()
+
+	// --- KV cache check (atomic check-and-add under lock) ---
 	cacheNeeded := float64(inputTokens) * m.Profile.KVCachePerTokenMB
-	m.mu.Lock()
-	currentCache := float64(m.kvCacheUsedMB.Load()) / 1000.0
+
+	m.kvMu.Lock()
+	currentCache := float64(m.kvCacheUsedMB) / 1000.0
 	if currentCache+cacheNeeded > m.maxKVCacheMB {
-		m.mu.Unlock()
+		m.kvMu.Unlock()
 		return nil, fmt.Errorf("%s OOM: kv cache exhausted (%.1f + %.1f > %.1f MB)",
 			m.Key, currentCache, cacheNeeded, m.maxKVCacheMB)
 	}
-	m.kvCacheUsedMB.Add(int64(cacheNeeded * 1000))
-	m.mu.Unlock()
+	m.kvCacheUsedMB += int64(cacheNeeded * 1000)
+	m.kvMu.Unlock()
 
-	m.activeRequests.Add(1)
 	defer func() {
-		m.activeRequests.Add(-1)
-		m.kvCacheUsedMB.Add(-int64(cacheNeeded * 1000))
+		m.kvMu.Lock()
+		m.kvCacheUsedMB -= int64(cacheNeeded * 1000)
+		m.kvMu.Unlock()
 	}()
 
+	// --- Simulate inference latency ---
 	prefillSec := float64(inputTokens) / m.Profile.PrefillTPS
 
-	currentActive := float64(m.activeRequests.Load())
+	// Count active slots (how full is the semaphore right now) for
+	// bandwidth contention simulation.
+	currentActive := float64(len(m.sem))
 	bandwidthContention := 1.0 + (currentActive-1)*0.15
+	if bandwidthContention < 1.0 {
+		bandwidthContention = 1.0
+	}
 	effectiveDecodeTPS := m.Profile.DecodeTPS / bandwidthContention
 	decodeSec := float64(maxOutputTokens) / effectiveDecodeTPS
 
 	totalSec := prefillSec + decodeSec
-	totalSec *= 0.85 + rand.Float64()*0.30
+	totalSec *= 0.85 + rand.Float64()*0.30 // ±15% jitter
 
 	time.Sleep(time.Duration(totalSec * float64(time.Second)))
 
@@ -186,10 +248,18 @@ func (m *MockModel) Generate(inputTokens, maxOutputTokens int) (*GenerateResult,
 		Model:      m.Key,
 		TTFT:       time.Duration(prefillSec * float64(time.Second)),
 		TotalTime:  time.Duration(totalSec * float64(time.Second)),
+		QueueWait:  queueWait,
 		OutputToks: maxOutputTokens,
 		DecodeTPS:  float64(maxOutputTokens) / decodeSec,
 		InputToks:  inputTokens,
 	}, nil
+}
+
+// ResetStats clears per-run counters. Call between benchmark runs if reusing
+// the same MockModel instances.
+func (m *MockModel) ResetStats() {
+	m.totalQueued.Store(0)
+	m.totalRejected.Store(0)
 }
 
 // ---------------------------------------------------------------------------
@@ -232,7 +302,6 @@ func LoadMTBench(path string) ([]MTBenchPrompt, error) {
 }
 
 // CategoryModelMap defines the expected routing target for each MT-Bench category.
-// Override entries to match your router's logic.
 var CategoryModelMap = map[string]string{
 	"writing":    "small",
 	"roleplay":   "small",
@@ -296,7 +365,7 @@ func estimateOutputTokens(category string) int {
 }
 
 // ---------------------------------------------------------------------------
-// Benchmark harness
+// Benchmark harness (non-Poisson)
 // ---------------------------------------------------------------------------
 
 type BenchmarkResults struct {
@@ -385,7 +454,7 @@ func (br BenchmarkResults) Accuracy() float64 {
 }
 
 func (br BenchmarkResults) AccuracyByCategory() map[string][2]int {
-	m := make(map[string][2]int) // [correct, total]
+	m := make(map[string][2]int)
 	for _, s := range br.Successes {
 		entry := m[s.Category]
 		entry[1]++
@@ -434,7 +503,6 @@ func Percentile(values []float64, p float64) float64 {
 	return sorted[lower]*(1-frac) + sorted[upper]*frac
 }
 
-// BuildMockModels creates MockModel instances from a config file.
 func BuildMockModels(configPath string) (map[string]*MockModel, error) {
 	cfg, err := LoadConfig(configPath)
 	if err != nil {
