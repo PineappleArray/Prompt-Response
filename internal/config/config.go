@@ -118,7 +118,18 @@ type Audit struct {
 }
 
 type Usage struct {
-	Enabled bool `yaml:"enabled"`
+	Enabled  bool          `yaml:"enabled"`
+	Postgres UsagePostgres `yaml:"postgres"`
+}
+
+// UsagePostgres configures the optional Postgres-backed usage sink that
+// mirrors the in-memory Tracker so totals survive restarts.
+type UsagePostgres struct {
+	Enabled       bool          `yaml:"enabled"`
+	DSN           string        `yaml:"dsn"`
+	FlushInterval time.Duration `yaml:"flush_interval"`
+	BatchSize     int           `yaml:"batch_size"`
+	BufferSize    int           `yaml:"buffer_size"`
 }
 
 type Stream struct {
@@ -303,6 +314,17 @@ func applyDefaults(cfg *Config) {
 		defaultPres := 0.1
 		cfg.Repetition.PresencePenalty = &defaultPres
 	}
+	if cfg.Usage.Postgres.Enabled {
+		if cfg.Usage.Postgres.FlushInterval == 0 {
+			cfg.Usage.Postgres.FlushInterval = 5 * time.Second
+		}
+		if cfg.Usage.Postgres.BatchSize == 0 {
+			cfg.Usage.Postgres.BatchSize = 100
+		}
+		if cfg.Usage.Postgres.BufferSize == 0 {
+			cfg.Usage.Postgres.BufferSize = 4096
+		}
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -434,6 +456,17 @@ func validate(cfg *Config) error {
 		pp := *cfg.Repetition.PresencePenalty
 		if pp < -2.0 || pp > 2.0 {
 			return fmt.Errorf("repetition presence_penalty must be in [-2.0, 2.0], got %v", pp)
+		}
+	}
+	if cfg.Usage.Postgres.Enabled {
+		if cfg.Usage.Postgres.DSN == "" {
+			return fmt.Errorf("usage.postgres enabled but dsn is empty")
+		}
+		if cfg.Usage.Postgres.FlushInterval < 0 {
+			return fmt.Errorf("usage.postgres flush_interval must be non-negative, got %v", cfg.Usage.Postgres.FlushInterval)
+		}
+		if cfg.Usage.Postgres.BatchSize < 0 || cfg.Usage.Postgres.BufferSize < 0 {
+			return fmt.Errorf("usage.postgres batch_size and buffer_size must be non-negative")
 		}
 	}
 	return nil

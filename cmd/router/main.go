@@ -127,6 +127,28 @@ func main() {
 
 	handler := proxy.New(scor, router, cfg, cb, trail, tracker)
 
+	if cfg.Usage.Postgres.Enabled {
+		sinkCtx, sinkCancel := context.WithTimeout(ctx, 5*time.Second)
+		sink, err := usage.NewPostgresSink(sinkCtx, usage.PostgresConfig{
+			DSN:           cfg.Usage.Postgres.DSN,
+			FlushInterval: cfg.Usage.Postgres.FlushInterval,
+			BatchSize:     cfg.Usage.Postgres.BatchSize,
+			BufferSize:    cfg.Usage.Postgres.BufferSize,
+		})
+		sinkCancel()
+		if err != nil {
+			slog.Warn("postgres usage sink unavailable, continuing without persistence", "err", err)
+		} else {
+			handler.SetUsageSink(sink)
+			defer sink.Close()
+			slog.Info("postgres usage sink enabled",
+				"flush_interval", cfg.Usage.Postgres.FlushInterval.String(),
+				"batch_size", cfg.Usage.Postgres.BatchSize,
+				"buffer_size", cfg.Usage.Postgres.BufferSize,
+			)
+		}
+	}
+
 	// Build middleware chain: inner → timeout → body limit → [ratelimit] → [auth] → request ID
 	var inner http.Handler = middleware.RequestTimeout(30*time.Second,
 		middleware.MaxBodySize(1<<20, handler),

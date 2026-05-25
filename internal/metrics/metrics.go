@@ -170,4 +170,21 @@ var (
 		},
 		[]string{"from", "to"},
 	)
+
+	// Usage sink flush attempts, labelled ok|error.
+	UsagePostgresFlushTotal = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "router_usage_postgres_flush_total",
+			Help: "Total Postgres usage-sink flush attempts, by status",
+		},
+		[]string{"status"},
+	)
+
+	// Usage events dropped because the sink's bounded buffer was full.
+	UsagePostgresBufferDropped = promauto.NewCounter(
+		prometheus.CounterOpts{
+			Name: "router_usage_postgres_buffer_dropped_total",
+			Help: "Total usage events dropped because the Postgres sink buffer was full",
+		},
+	)
 )

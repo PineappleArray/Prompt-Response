@@ -51,8 +51,13 @@ type Handler struct {
 	circuit    *circuit.Registry
 	audit      *audit.Trail
 	usage      *usage.Tracker
+	usageSink  usage.Sink
 	client     *http.Client
 }
+
+// SetUsageSink attaches an async usage Sink (e.g. PostgresSink). Nil is
+// treated as "no sink" — usage continues to be tracked in memory only.
+func (h *Handler) SetUsageSink(s usage.Sink) { h.usageSink = s }
 
 func New(s *scorer.Scorer, c classifier.Classifier, cfg *config.Config, cr *circuit.Registry, trail *audit.Trail, tracker *usage.Tracker) *Handler {
 	return &Handler{
@@ -452,6 +457,15 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.usage.Record(tenant, classReq.TokenCount, stats.OutputTokens)
 		metrics.TokensConsumedTotal.WithLabelValues(tenant, "input").Add(float64(classReq.TokenCount))
 		metrics.TokensConsumedTotal.WithLabelValues(tenant, "output").Add(float64(stats.OutputTokens))
+
+		if h.usageSink != nil {
+			h.usageSink.Enqueue(usage.UsageEvent{
+				Tenant: tenant,
+				In:     classReq.TokenCount,
+				Out:    stats.OutputTokens,
+				At:     time.Now(),
+			})
+		}
 	}
 }
 

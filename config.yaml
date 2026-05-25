@@ -133,6 +133,12 @@ audit:
 
 usage:
   enabled: true
+  postgres:
+    enabled: false
+    dsn: postgres://router:router@localhost:5432/router?sslmode=disable
+    flush_interval: 5s
+    batch_size: 100
+    buffer_size: 4096
 
 prefix_len: 512
 affinity_ttl: 5m
