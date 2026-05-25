@@ -109,8 +109,10 @@ func (s *Scorer) PollerSnapshot() map[string]poller.State {
 
 func (s *Scorer) score(hit bool, queueDepth int, kvCacheUtil float64) float64 {
 	cacheScore := 0.0
+	missPenalty := s.weights.MissPenalty
 	if hit {
 		cacheScore = 1.0
+		missPenalty = 0
 	}
 	queueScore := math.Max(0, 1-float64(queueDepth)/s.maxQueue)
 
@@ -123,5 +125,6 @@ func (s *Scorer) score(hit bool, queueDepth int, kvCacheUtil float64) float64 {
 	return s.weights.CacheAffinity*cacheScore +
 		s.weights.QueueDepth*queueScore +
 		s.weights.KVCachePressure*kvPressureScore +
-		s.weights.Baseline*0.5
+		s.weights.Baseline*0.5 -
+		missPenalty
 }

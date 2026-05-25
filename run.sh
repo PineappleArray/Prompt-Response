@@ -7,6 +7,7 @@ LDFLAGS="-ldflags=-X main.version=${VERSION} -X main.buildTime=${BUILD_TIME}"
 
 build() {
     go build "${LDFLAGS}" -o bin/router ./cmd/router
+    go build "${LDFLAGS}" -o bin/cli ./cmd/cli
 }
 
 test_all() {
@@ -16,6 +17,14 @@ test_all() {
 bench() {
     go test ./internal/classifier -bench=. -benchmem
     go test ./internal/scorer -bench=. -benchmem
+    go test ./internal/proxy -bench=. -benchmem -run='^$'
+}
+
+bench_router() {
+    # Full router benchmark sweep: end-to-end handler, scorer hot path,
+    # classifier, and the Poisson-load harness in ./test.
+    go test ./internal/proxy ./internal/scorer ./internal/classifier ./test \
+        -bench=. -benchmem -run='^$' -count=1
 }
 
 lint() {
@@ -41,15 +50,16 @@ clean() {
 }
 
 case "${1:-}" in
-    build)   build ;;
-    test)    test_all ;;
-    bench)   bench ;;
-    lint)    lint ;;
-    run)     run ;;
-    docker)  docker_up ;;
-    clean)   clean ;;
+    build)        build ;;
+    test)         test_all ;;
+    bench)        bench ;;
+    bench_router) bench_router ;;
+    lint)         lint ;;
+    run)          run ;;
+    docker)       docker_up ;;
+    clean)        clean ;;
     *)
-        echo "Usage: $0 {build|test|bench|lint|run|docker|clean}"
+        echo "Usage: $0 {build|test|bench|bench_router|lint|run|docker|clean}"
         exit 1
         ;;
 esac

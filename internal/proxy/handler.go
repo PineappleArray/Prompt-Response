@@ -51,8 +51,13 @@ type Handler struct {
 	circuit    *circuit.Registry
 	audit      *audit.Trail
 	usage      *usage.Tracker
+	usageSink  usage.Sink
 	client     *http.Client
 }
+
+// SetUsageSink attaches an async usage Sink (e.g. PostgresSink). Nil is
+// treated as "no sink" — usage continues to be tracked in memory only.
+func (h *Handler) SetUsageSink(s usage.Sink) { h.usageSink = s }
 
 func New(s *scorer.Scorer, c classifier.Classifier, cfg *config.Config, cr *circuit.Registry, trail *audit.Trail, tracker *usage.Tracker) *Handler {
 	return &Handler{
@@ -133,11 +138,19 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	systemPrompt, userMessage := extractMessages(req)
-	prefixHash := xxhash.Sum64String(systemPrompt)
+
+	// Hash the first user message (not the system prompt). The first user
+	// message is the only one guaranteed to be present and unchanged on
+	// every turn of a conversation, so all turns route to the same replica
+	// and warm the same KV cache. Hashing the system prompt would collide
+	// many distinct conversations onto one replica; hashing the last user
+	// message would churn the prefix cache turn to turn.
+	firstUser := firstUserMessage(req)
+	prefixHash := xxhash.Sum64String(firstUser)
 
 	// Conversation tier lock: look up the tier this conversation is already
 	// pinned to (if any) so the classifier can only escalate, never downgrade.
-	convHash := conversationHash(r, req, systemPrompt)
+	convHash := conversationHash(r, firstUser)
 	prevConv, hasConv := h.scorer.Store().GetConversation(convHash)
 
 	classReq := classifier.Request{
@@ -444,6 +457,15 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.usage.Record(tenant, classReq.TokenCount, stats.OutputTokens)
 		metrics.TokensConsumedTotal.WithLabelValues(tenant, "input").Add(float64(classReq.TokenCount))
 		metrics.TokensConsumedTotal.WithLabelValues(tenant, "output").Add(float64(stats.OutputTokens))
+
+		if h.usageSink != nil {
+			h.usageSink.Enqueue(usage.UsageEvent{
+				Tenant: tenant,
+				In:     classReq.TokenCount,
+				Out:    stats.OutputTokens,
+				At:     time.Now(),
+			})
+		}
 	}
 }
 
@@ -719,14 +741,13 @@ func extractMessages(req openAIRequest) (system, user string) {
 
 // conversationHash derives a stable key for a multi-turn conversation. An
 // explicit X-Conversation-Id header wins; otherwise the conversation is
-// identified by its system prompt plus its first user message — both of
-// which every turn of a standard chat-completions exchange resends
-// unchanged, so the key is stable across turns.
-func conversationHash(r *http.Request, req openAIRequest, systemPrompt string) uint64 {
+// identified by its first user message, which every turn of a standard
+// chat-completions exchange resends unchanged.
+func conversationHash(r *http.Request, firstUser string) uint64 {
 	if id := r.Header.Get("X-Conversation-Id"); id != "" {
 		return xxhash.Sum64String("cid:" + id)
 	}
-	return xxhash.Sum64String(systemPrompt + "\x00" + firstUserMessage(req))
+	return xxhash.Sum64String(firstUser)
 }
 
 // firstUserMessage returns the content of the earliest user message, which

@@ -89,6 +89,11 @@ type Weights struct {
 	QueueDepth      float64 `yaml:"queue_depth"`
 	KVCachePressure float64 `yaml:"kv_cache_pressure"`
 	Baseline        float64 `yaml:"baseline"`
+	// MissPenalty is subtracted from a candidate's score when the prefix
+	// cache does not point to that replica. Raising it makes the scorer
+	// more reluctant to send a request to a replica that would have to
+	// recompute the prefix from scratch.
+	MissPenalty float64 `yaml:"miss_penalty"`
 }
 
 type Auth struct {
@@ -113,7 +118,18 @@ type Audit struct {
 }
 
 type Usage struct {
-	Enabled bool `yaml:"enabled"`
+	Enabled  bool          `yaml:"enabled"`
+	Postgres UsagePostgres `yaml:"postgres"`
+}
+
+// UsagePostgres configures the optional Postgres-backed usage sink that
+// mirrors the in-memory Tracker so totals survive restarts.
+type UsagePostgres struct {
+	Enabled       bool          `yaml:"enabled"`
+	DSN           string        `yaml:"dsn"`
+	FlushInterval time.Duration `yaml:"flush_interval"`
+	BatchSize     int           `yaml:"batch_size"`
+	BufferSize    int           `yaml:"buffer_size"`
 }
 
 type Stream struct {
@@ -298,6 +314,17 @@ func applyDefaults(cfg *Config) {
 		defaultPres := 0.1
 		cfg.Repetition.PresencePenalty = &defaultPres
 	}
+	if cfg.Usage.Postgres.Enabled {
+		if cfg.Usage.Postgres.FlushInterval == 0 {
+			cfg.Usage.Postgres.FlushInterval = 5 * time.Second
+		}
+		if cfg.Usage.Postgres.BatchSize == 0 {
+			cfg.Usage.Postgres.BatchSize = 100
+		}
+		if cfg.Usage.Postgres.BufferSize == 0 {
+			cfg.Usage.Postgres.BufferSize = 4096
+		}
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -400,7 +427,8 @@ func validate(cfg *Config) error {
 		return fmt.Errorf("max_queue must be positive, got %v", cfg.MaxQueue)
 	}
 	if cfg.Weights.CacheAffinity < 0 || cfg.Weights.QueueDepth < 0 ||
-		cfg.Weights.KVCachePressure < 0 || cfg.Weights.Baseline < 0 {
+		cfg.Weights.KVCachePressure < 0 || cfg.Weights.Baseline < 0 ||
+		cfg.Weights.MissPenalty < 0 {
 		return fmt.Errorf("scoring weights must be non-negative")
 	}
 	if cfg.Circuit.ErrorThreshold < 0 || cfg.Circuit.ErrorThreshold > 1 {
@@ -428,6 +456,17 @@ func validate(cfg *Config) error {
 		pp := *cfg.Repetition.PresencePenalty
 		if pp < -2.0 || pp > 2.0 {
 			return fmt.Errorf("repetition presence_penalty must be in [-2.0, 2.0], got %v", pp)
+		}
+	}
+	if cfg.Usage.Postgres.Enabled {
+		if cfg.Usage.Postgres.DSN == "" {
+			return fmt.Errorf("usage.postgres enabled but dsn is empty")
+		}
+		if cfg.Usage.Postgres.FlushInterval < 0 {
+			return fmt.Errorf("usage.postgres flush_interval must be non-negative, got %v", cfg.Usage.Postgres.FlushInterval)
+		}
+		if cfg.Usage.Postgres.BatchSize < 0 || cfg.Usage.Postgres.BufferSize < 0 {
+			return fmt.Errorf("usage.postgres batch_size and buffer_size must be non-negative")
 		}
 	}
 	return nil
