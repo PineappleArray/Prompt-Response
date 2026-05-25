@@ -78,8 +78,8 @@ func (p *PostgresSink) Close() error {
 // produces a single row, then sends one pgx.Batch round-trip.
 func upsertUsage(ctx context.Context, pool *pgxpool.Pool, events []UsageEvent) error {
 	type agg struct {
-		in, out, n         int64
-		first, last        time.Time
+		in, out, n  int64
+		first, last time.Time
 	}
 	tenants := make(map[string]*agg, len(events))
 	for _, ev := range events {
