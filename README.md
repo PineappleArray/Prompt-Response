@@ -175,6 +175,9 @@ Tier filtering happens before scoring — replicas matching the requested tier a
 
 All weights are configurable in `config.yaml` — no hardcoded values in the scoring path.
 
+## TODO
+Fix up the internal latency caused by technical debt, get this ready for display on Indie Hacker.
+Write more tests for more coverage.
 ## Quick Start
 
 ```bash
