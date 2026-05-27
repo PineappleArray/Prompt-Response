@@ -22,7 +22,6 @@ import (
 	"prompt-response/internal/scorer"
 	"prompt-response/internal/store"
 	"prompt-response/internal/usage"
-	"prompt-response/internal/web"
 
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
@@ -180,7 +179,6 @@ func main() {
 
 	mux := http.NewServeMux()
 	mux.Handle("/metrics", promhttp.Handler())
-	mux.Handle("/dashboard/", web.Handler())
 	mux.HandleFunc("/dashboard", func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/dashboard/", http.StatusMovedPermanently)
 	})

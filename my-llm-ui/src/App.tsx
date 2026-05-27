@@ -1,11 +1,7 @@
 import { useState, useRef, useEffect, type CSSProperties } from "react";
+import { useChat } from "./useChat";
 
 // ── Types ──────────────────────────────────────────────────────────
-type Message = {
-  role: "user" | "assistant";
-  content: string;
-};
-
 type Model = {
   id: string;
   label: string;
@@ -23,12 +19,6 @@ const MODELS: Model[] = [
   { id: "opus", label: "Claude Opus 4.6", badge: "Most Capable" },
   { id: "sonnet", label: "Claude Sonnet 4.6", badge: "Balanced" },
   { id: "haiku", label: "Claude Haiku 4.5", badge: "Fastest" },
-];
-
-const SAMPLE_RESPONSES: string[] = [
-  "I'd be happy to help you with that. Let me think through this step by step.",
-  "That's a great question. Here's what I know about the topic:",
-  "Let me break this down for you. There are a few key considerations here.",
 ];
 
 // ── Components ─────────────────────────────────────────────────────
@@ -132,19 +122,19 @@ function MessageBubble({ role, content, isStreaming }: MessageBubbleProps) {
 
 // ── Main Component ─────────────────────────────────────────────────
 export default function ClaudeChatUI() {
+  // Point this at your Go backend's stream endpoint.
+  const { messages, input, isStreaming, error, send, stop, setInput, clearError } =
+    useChat("/v1/stream");
+
   const [selectedModel, setSelectedModel] = useState<string>("sonnet");
   const [modelDropdownOpen, setModelDropdownOpen] = useState<boolean>(false);
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [input, setInput] = useState<string>("");
-  const [isGenerating, setIsGenerating] = useState<boolean>(false);
-  const [streamingText, setStreamingText] = useState<string>("");
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, streamingText]);
+  }, [messages]);
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent): void {
@@ -156,41 +146,12 @@ export default function ClaudeChatUI() {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  const simulateStream = (fullText: string): Promise<string> => {
-    return new Promise((resolve) => {
-      let i = 0;
-      setStreamingText("");
-      const interval = setInterval(() => {
-        if (i < fullText.length) {
-          const chunkSize = Math.floor(Math.random() * 3) + 1;
-          setStreamingText((prev) => prev + fullText.slice(i, i + chunkSize));
-          i += chunkSize;
-        } else {
-          clearInterval(interval);
-          resolve(fullText);
-        }
-      }, 25);
-    });
-  };
-
-  const handleSend = async (): Promise<void> => {
-    if (!input.trim() || isGenerating) return;
-    const userMsg = input.trim();
-    setInput("");
-    setMessages((prev) => [...prev, { role: "user", content: userMsg }]);
-    setIsGenerating(true);
-
+  const handleSend = () => {
+    if (!input.trim() || isStreaming) return;
     const model = MODELS.find((m) => m.id === selectedModel);
-    const response =
-      SAMPLE_RESPONSES[Math.floor(Math.random() * SAMPLE_RESPONSES.length)] +
-      "\n\nBased on your message, here's a detailed response that demonstrates the streaming text generation capability of this interface. The model currently selected is **" +
-      (model?.label ?? "Unknown") +
-      "**, which would process your request and generate a thoughtful reply like this one.";
-
-    await simulateStream(response);
-    setMessages((prev) => [...prev, { role: "assistant", content: response }]);
-    setStreamingText("");
-    setIsGenerating(false);
+    // send() dispatches ADD_USER_MESSAGE + START_STREAM internally,
+    // then streams tokens via STREAM_TOKEN until END_STREAM.
+    send(model?.id ?? "sonnet");
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>): void => {
@@ -201,6 +162,10 @@ export default function ClaudeChatUI() {
   };
 
   const currentModel = MODELS.find((m) => m.id === selectedModel);
+
+  // Detect if the last message is the assistant streaming.
+  const lastMsg = messages[messages.length - 1];
+  const isLastAssistantStreaming = isStreaming && lastMsg?.role === "assistant";
 
   const cssVars: Record<string, string> = {
     "--bg-primary": "#f5f3ef",
@@ -382,7 +347,7 @@ export default function ClaudeChatUI() {
         }}
       >
         <div style={{ maxWidth: 680, width: "100%", margin: "0 auto", flex: 1 }}>
-          {messages.length === 0 && !isGenerating && (
+          {messages.length === 0 && !isStreaming && (
             <div
               style={{
                 display: "flex",
@@ -407,11 +372,21 @@ export default function ClaudeChatUI() {
             </div>
           )}
 
-          {messages.map((msg, i) => (
-            <MessageBubble key={i} role={msg.role} content={msg.content} isStreaming={false} />
-          ))}
+          {/* Render all messages. The last assistant message gets the streaming cursor. */}
+          {messages.map((msg, i) => {
+            const isLastAssistant = i === messages.length - 1 && msg.role === "assistant";
+            return (
+              <MessageBubble
+                key={i}
+                role={msg.role}
+                content={msg.content}
+                isStreaming={isLastAssistant && isLastAssistantStreaming}
+              />
+            );
+          })}
 
-          {isGenerating && streamingText === "" && (
+          {/* Show typing dots when streaming just started (empty assistant message) */}
+          {isStreaming && lastMsg?.role === "assistant" && lastMsg.content === "" && (
             <div style={{ display: "flex", gap: 12, alignItems: "flex-start", marginBottom: 16 }}>
               <div
                 style={{
@@ -433,8 +408,36 @@ export default function ClaudeChatUI() {
             </div>
           )}
 
-          {isGenerating && streamingText && (
-            <MessageBubble role="assistant" content={streamingText} isStreaming={true} />
+          {/* Error display */}
+          {error && (
+            <div
+              style={{
+                padding: "10px 16px",
+                borderRadius: 12,
+                background: "#f5e6e1",
+                color: "#8b3a2a",
+                fontSize: 14,
+                marginBottom: 16,
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+              }}
+            >
+              <span>{error}</span>
+              <button
+                onClick={clearError}
+                style={{
+                  border: "none",
+                  background: "transparent",
+                  color: "#8b3a2a",
+                  cursor: "pointer",
+                  fontSize: 16,
+                  fontFamily: "inherit",
+                }}
+              >
+                ✕
+              </button>
+            </div>
           )}
 
           <div ref={messagesEndRef} />
@@ -486,36 +489,62 @@ export default function ClaudeChatUI() {
               maxHeight: 160,
             }}
           />
-          <button
-            onClick={handleSend}
-            disabled={!input.trim() || isGenerating}
-            style={{
-              width: 32,
-              height: 32,
-              borderRadius: "50%",
-              border: "none",
-              background: input.trim() && !isGenerating ? "var(--accent)" : "var(--bg-tertiary)",
-              cursor: input.trim() && !isGenerating ? "pointer" : "default",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              flexShrink: 0,
-              transition: "background 0.15s, transform 0.1s",
-            }}
-            onMouseEnter={(e) => {
-              if (input.trim() && !isGenerating) e.currentTarget.style.background = "var(--accent-hover)";
-            }}
-            onMouseLeave={(e) => {
-              if (input.trim() && !isGenerating) e.currentTarget.style.background = "var(--accent)";
-            }}
-          >
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-              <path d="M8 12V4M8 4L4 8M8 4l4 4" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
-          </button>
+          {isStreaming ? (
+            <button
+              onClick={stop}
+              style={{
+                width: 32,
+                height: 32,
+                borderRadius: "50%",
+                border: "none",
+                background: "var(--accent)",
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                flexShrink: 0,
+                transition: "background 0.15s",
+              }}
+              onMouseEnter={(e) => (e.currentTarget.style.background = "var(--accent-hover)")}
+              onMouseLeave={(e) => (e.currentTarget.style.background = "var(--accent)")}
+            >
+              {/* Stop icon (square) */}
+              <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                <rect x="1" y="1" width="10" height="10" rx="2" fill="white" />
+              </svg>
+            </button>
+          ) : (
+            <button
+              onClick={handleSend}
+              disabled={!input.trim()}
+              style={{
+                width: 32,
+                height: 32,
+                borderRadius: "50%",
+                border: "none",
+                background: input.trim() ? "var(--accent)" : "var(--bg-tertiary)",
+                cursor: input.trim() ? "pointer" : "default",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                flexShrink: 0,
+                transition: "background 0.15s, transform 0.1s",
+              }}
+              onMouseEnter={(e) => {
+                if (input.trim()) e.currentTarget.style.background = "var(--accent-hover)";
+              }}
+              onMouseLeave={(e) => {
+                if (input.trim()) e.currentTarget.style.background = "var(--accent)";
+              }}
+            >
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                <path d="M8 12V4M8 4L4 8M8 4l4 4" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </button>
+          )}
         </div>
         <div style={{ textAlign: "center", marginTop: 8, fontSize: 11, color: "var(--text-muted)" }}>
-          AI can make mistakes. Models may produce inaccurate information.
+          Models can make mistakes. Models may produce inaccurate information.
         </div>
       </div>
     </div>
