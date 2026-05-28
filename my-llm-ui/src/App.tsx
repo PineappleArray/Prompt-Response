@@ -474,7 +474,7 @@ export default function ClaudeChatUI() {
               e.target.style.height = Math.min(e.target.scrollHeight, 160) + "px";
             }}
             onKeyDown={handleKeyDown}
-            placeholder="Message Claude..."
+            placeholder="Send a message..."
             rows={1}
             style={{
               flex: 1,
@@ -544,7 +544,7 @@ export default function ClaudeChatUI() {
           )}
         </div>
         <div style={{ textAlign: "center", marginTop: 8, fontSize: 11, color: "var(--text-muted)" }}>
-          Claude can make mistakes. Models may produce inaccurate information.
+          Models can make mistakes. Models may produce inaccurate information.
         </div>
       </div>
     </div>
