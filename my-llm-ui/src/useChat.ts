@@ -6,14 +6,16 @@ export type Message = {
   content: string;
 };
 
-type StreamChunk = {
-  type: "token" | "done" | "error";
-  content?: string;
-  model?: string;
-  usage?: {
-    prompt_tokens: number;
-    completion_tokens: number;
-  };
+// OpenAI-compatible SSE chunk structure (what your Go backend proxies through)
+type OpenAIChunk = {
+  id?: string;
+  choices?: Array<{
+    delta?: {
+      content?: string;
+      role?: string;
+    };
+    finish_reason?: string | null;
+  }>;
 };
 
 type State = {
@@ -78,7 +80,10 @@ function reducer(state: State, action: Action): State {
 }
 
 // ── Hook ───────────────────────────────────────────────────────────
-export function useChat(apiUrl: string = "/v1/stream") {
+// Posts to /v1/chat/completions with stream: true.
+// Your Go backend's ServeHTTP handles this path, proxies to a replica,
+// and streams back raw OpenAI-compatible SSE through streamInterceptor.
+export function useChat(apiUrl: string = "/v1/chat/completions") {
   const [state, dispatch] = useReducer(reducer, initialState);
   const abortRef = useRef<AbortController | null>(null);
 
@@ -86,7 +91,6 @@ export function useChat(apiUrl: string = "/v1/stream") {
     async (model: string) => {
       if (!state.input.trim() || state.isStreaming) return;
 
-      // Build messages array including the new user message
       const userMessage: Message = { role: "user", content: state.input };
       const allMessages = [...state.messages, userMessage];
 
@@ -100,7 +104,11 @@ export function useChat(apiUrl: string = "/v1/stream") {
         const res = await fetch(apiUrl, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ model, messages: allMessages }),
+          body: JSON.stringify({
+            model,
+            messages: allMessages,
+            stream: true,
+          }),
           signal: controller.signal,
         });
 
@@ -130,39 +138,40 @@ export function useChat(apiUrl: string = "/v1/stream") {
           buffer = parts.pop() ?? "";
 
           for (const part of parts) {
-            const line = part.trim();
-            if (!line.startsWith("data: ")) continue;
+            for (const line of part.split("\n")) {
+              const trimmed = line.trim();
+              if (!trimmed.startsWith("data: ")) continue;
 
-            const json_str = line.slice(6);
-            try {
-              const chunk: StreamChunk = JSON.parse(json_str);
+              const data = trimmed.slice(6);
 
-              switch (chunk.type) {
-                case "token":
-                  if (chunk.content) {
-                    dispatch({ type: "STREAM_TOKEN", payload: chunk.content });
-                  }
-                  break;
-                case "done":
-                  dispatch({ type: "END_STREAM" });
-                  break;
-                case "error":
-                  dispatch({
-                    type: "STREAM_ERROR",
-                    payload: chunk.content ?? "Unknown stream error",
-                  });
-                  break;
+              // [DONE] sentinel — stream is complete
+              if (data === "[DONE]") {
+                dispatch({ type: "END_STREAM" });
+                continue;
               }
-            } catch {
-              // skip malformed chunks
+
+              try {
+                const chunk: OpenAIChunk = JSON.parse(data);
+                const content = chunk.choices?.[0]?.delta?.content;
+
+                if (content) {
+                  dispatch({ type: "STREAM_TOKEN", payload: content });
+                }
+
+                // Some providers send finish_reason instead of [DONE]
+                const finishReason = chunk.choices?.[0]?.finish_reason;
+                if (finishReason === "stop") {
+                  dispatch({ type: "END_STREAM" });
+                }
+              } catch {
+                // skip malformed chunks
+              }
             }
           }
         }
 
-        // if we exited the loop without a "done" chunk
-        if (state.isStreaming) {
-          dispatch({ type: "END_STREAM" });
-        }
+        // Safety net: if stream ended without [DONE] or finish_reason
+        dispatch({ type: "END_STREAM" });
       } catch (err: unknown) {
         if (err instanceof DOMException && err.name === "AbortError") {
           dispatch({ type: "END_STREAM" });
