@@ -84,6 +84,7 @@ type openAIRequest struct {
 }
 
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	println("Received request:", r.Method, r.URL.Path)
 	switch r.URL.Path {
 	case "/healthz":
 		w.Header().Set("Content-Type", "application/json")

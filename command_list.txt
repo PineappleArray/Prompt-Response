@@ -1,3 +1,2 @@
-Add a postgre sql db that will log total usage as well as change the hashing system to get rid of the system prompt increase the penalty for recomputing.
-Update the tests for this project so I can have a full benchmark of the router and to fix any errors that arise. Add a cmd line prompt that will output code ie a small bar at the bottom for prompts and
-the top portion for the code to run.
+Add a main similar to the one in cmd/router/main.go except it does not call the apis and have it stream mock example of how the code should function to the frontend tsx file
+as well as that add another webpage that can be accessed from the App.tsx that takes in the api usage and other metrics add a bar graph and other metrics to show the api usage keep style consistent with the app file.
