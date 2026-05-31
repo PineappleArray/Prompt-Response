@@ -14,10 +14,10 @@ type View = "chat" | "usage";
 
 // ── Constants ──────────────────────────────────────────────────────
 const MODELS: Model[] = [
-  { id: "opus", label: "Claude Opus 4.6", badge: "Most Capable" },
-  { id: "sonnet", label: "Claude Sonnet 4.6", badge: "Balanced" },
-  { id: "haiku", label: "Claude Haiku 4.5", badge: "Fastest" },
-];
+  { id: "opus", label: "Qwen2.5-72B-Instruct-AWQ", badge: "Most Powerful" },
+  { id: "sonnet", label: "Qwen2.5-7B-Instruct-AWQ", badge: "Balanced" },
+  { id: "haiku", label: "Qwen2.5-14B-Instruct-AWQ", badge: "Fastest" },
+]; 
 
 // ── Nav tabs ───────────────────────────────────────────────────────
 function NavTabs({ view, onChange }: { view: View; onChange: (v: View) => void }) {

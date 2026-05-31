@@ -119,4 +119,10 @@ var cannedReplies = []string{
 		"replica that already holds the conversation's KV cache, so repeated context " +
 		"isn't recomputed. The metrics page visualizes how traffic spreads across tiers " +
 		"and how much that routing saves versus always using the largest model.",
+	"Hash map insertion is O(1) average, O(n) worst case when everything collides into one bucket. " +
+		"A balanced BST like a red-black tree is O(log n) guaranteed. " +
+		"Pick a hash map when you need fast lookups and don't care about ordering. " +
+		"Pick a BST when you need sorted iteration, range queries, or guaranteed worst-case " +
+		"performance. Hash maps also struggle when the hash function is poor or the keys are adversarial " +
+		"— a BST doesn't have that problem.",
 }
