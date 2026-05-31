@@ -1,2 +1,6 @@
-Add a main similar to the one in cmd/router/main.go except it does not call the apis and have it stream mock example of how the code should function to the frontend tsx file
-as well as that add another webpage that can be accessed from the App.tsx that takes in the api usage and other metrics add a bar graph and other metrics to show the api usage keep style consistent with the app file.
+first change the deberta classifier from python to go and write that new classifier in classifier.go
+then add hybrid functionality that allows people to send prompts to llm apis as well
+make tests to check latency
+get the p99 and p50 down currently p99 is 10s and p50 is 5
+change the classification selection method to take into account this hybrid approuch
+make code function with fully vllm and fully api models
