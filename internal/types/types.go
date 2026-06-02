@@ -94,14 +94,36 @@ type TierConfig struct {
 	Routing     TierRouting
 }
 
-// Replica is a single model server instance.
+// Provider identifies what kind of upstream a replica talks to. The empty
+// string is treated as ProviderVLLM for backward compatibility with configs
+// written before hybrid API routing existed.
+const (
+	ProviderVLLM      = "vllm"
+	ProviderAnthropic = "anthropic"
+)
+
+// Replica is a single model server instance. It may be a local vLLM replica
+// (the default) or an external LLM API endpoint (e.g. Anthropic Claude),
+// distinguished by Provider.
 type Replica struct {
 	ID        string
-	URL       string
-	Model     string
+	URL       string     // vLLM base URL, or API base URL for API providers
+	Model     string     // model name to request from the upstream
 	Tier      ModelTier  // tier name — cheap to compare and store
 	TierCfg   TierConfig // full routing config for this replica's tier
 	ParamSize int64
+
+	// Provider is "vllm" (or "") for local replicas, or an API provider such
+	// as "anthropic". API replicas are not health-polled (they expose no
+	// vLLM-style metrics) and carry their own credential.
+	Provider string
+	APIKey   string // resolved credential for API providers; empty for vLLM
+}
+
+// IsAPI reports whether this replica routes to an external LLM API rather than
+// a local vLLM server.
+func (r Replica) IsAPI() bool {
+	return r.Provider != "" && r.Provider != ProviderVLLM
 }
 
 type ReplicaList struct {

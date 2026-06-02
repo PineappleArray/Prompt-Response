@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -470,9 +471,26 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// doUpstream sends the request body to the given replica and returns the
-// raw response. The caller is responsible for closing resp.Body.
+// doUpstream sends the request body to the given replica and returns the raw
+// response. It dispatches by provider: local vLLM replicas are reverse-proxied
+// as-is, while API providers (e.g. Anthropic) translate the OpenAI request and
+// stream a translated OpenAI-compatible SSE response. The caller is responsible
+// for closing resp.Body. In every case the body the caller reads is
+// OpenAI-compatible SSE, so the stream interceptor and client are unchanged.
 func (h *Handler) doUpstream(ctx context.Context, replica config.Replica, body []byte, orig *http.Request) (*http.Response, error) {
+	if replica.IsAPI() {
+		switch replica.Provider {
+		case types.ProviderAnthropic:
+			return h.doUpstreamAnthropic(ctx, replica, body)
+		default:
+			return nil, fmt.Errorf("unsupported api provider %q for replica %s", replica.Provider, replica.ID)
+		}
+	}
+	return h.doUpstreamVLLM(ctx, replica, body, orig)
+}
+
+// doUpstreamVLLM reverse-proxies the request to a local vLLM replica unchanged.
+func (h *Handler) doUpstreamVLLM(ctx context.Context, replica config.Replica, body []byte, orig *http.Request) (*http.Response, error) {
 	upstreamURL := replica.URL + orig.URL.Path
 	req, err := http.NewRequestWithContext(ctx, orig.Method, upstreamURL, bytes.NewReader(body))
 	if err != nil {

@@ -48,6 +48,13 @@ func New(replicas []config.Replica, interval time.Duration) *Poller {
 
 func (p *Poller) Start(ctx context.Context) {
 	for _, r := range p.replicas {
+		// API replicas (e.g. Anthropic) expose no vLLM-style /metrics endpoint
+		// and cannot be scraped. They keep their initial healthy state and rely
+		// on the circuit breaker to detect failures. Only poll vLLM replicas.
+		if r.IsAPI() {
+			slog.Info("skipping health poll for API replica", "replica", r.ID, "provider", r.Provider)
+			continue
+		}
 		go p.pollLoop(ctx, r)
 	}
 }
@@ -74,7 +81,6 @@ func (p *Poller) pollLoop(ctx context.Context, r config.Replica) {
 		case <-ticker.C:
 			state, err := p.scrape(r)
 			p.mu.Lock()
-			println(err.Error())
 			if err != nil {
 				p.failures[r.ID]++
 				if p.failures[r.ID] >= 3 {

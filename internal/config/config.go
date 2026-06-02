@@ -152,6 +152,61 @@ type ReplicaConfig struct {
 	ID    string `yaml:"id"`
 	URL   string `yaml:"url"`
 	Model string `yaml:"model"`
+
+	// Provider selects the upstream kind: "vllm" (default) or "anthropic".
+	Provider string `yaml:"provider"`
+	// APIKeyEnv names the environment variable holding the API credential for
+	// API providers. Secrets are never written in YAML. Defaults per provider
+	// (e.g. ANTHROPIC_API_KEY) when empty.
+	APIKeyEnv string `yaml:"api_key_env"`
+}
+
+// providerDefaults supplies per-provider fallbacks for an API replica whose
+// url / api_key_env are omitted in YAML.
+type providerDefaults struct {
+	baseURLEnv    string
+	baseURLStatic string
+	apiKeyEnv     string
+}
+
+var apiProviderDefaults = map[string]providerDefaults{
+	types.ProviderAnthropic: {
+		baseURLEnv:    "ANTHROPIC_BASE_URL",
+		baseURLStatic: "https://api.anthropic.com",
+		apiKeyEnv:     "ANTHROPIC_API_KEY",
+	},
+}
+
+// normalizeProvider lower-cases the provider and maps "" to vllm.
+func normalizeProvider(p string) string {
+	p = strings.ToLower(strings.TrimSpace(p))
+	if p == "" {
+		return types.ProviderVLLM
+	}
+	return p
+}
+
+// resolveAPIReplica fills in the runtime URL and credential for an API replica
+// from config plus environment defaults.
+func resolveAPIReplica(provider string, m ReplicaConfig) (url, apiKey string) {
+	def := apiProviderDefaults[provider]
+	url = m.URL
+	if url == "" {
+		if def.baseURLEnv != "" {
+			url = os.Getenv(def.baseURLEnv)
+		}
+		if url == "" {
+			url = def.baseURLStatic
+		}
+	}
+	keyEnv := m.APIKeyEnv
+	if keyEnv == "" {
+		keyEnv = def.apiKeyEnv
+	}
+	if keyEnv != "" {
+		apiKey = os.Getenv(keyEnv)
+	}
+	return strings.TrimRight(url, "/"), apiKey
 }
 
 // Replica is the runtime replica type. It aliases types.Replica so callers
@@ -390,7 +445,15 @@ func validate(cfg *Config) error {
 			if m.ID == "" {
 				return fmt.Errorf("model tier %s: replica missing id", t.Name)
 			}
-			if m.URL == "" {
+			provider := normalizeProvider(m.Provider)
+			isAPI := provider != types.ProviderVLLM
+			if isAPI {
+				if _, ok := apiProviderDefaults[provider]; !ok {
+					return fmt.Errorf("model tier %s: replica %s has unknown provider %q", t.Name, m.ID, m.Provider)
+				}
+				// API replicas resolve their URL from config or provider
+				// defaults, so an explicit url is optional here.
+			} else if m.URL == "" {
 				return fmt.Errorf("model tier %s: replica %s missing url", t.Name, m.ID)
 			}
 			if m.Model == "" {
@@ -538,13 +601,21 @@ func (c *Config) ToReplicaList() types.ReplicaList {
 		}
 
 		for _, m := range t.Models {
+			provider := normalizeProvider(m.Provider)
+			url := m.URL
+			apiKey := ""
+			if provider != types.ProviderVLLM {
+				url, apiKey = resolveAPIReplica(provider, m)
+			}
 			replicas = append(replicas, types.Replica{
 				ID:        m.ID,
-				URL:       m.URL,
+				URL:       url,
 				Model:     m.Model,
 				Tier:      types.ModelTier(t.Name),
 				TierCfg:   tierCfg,
 				ParamSize: parseModelSize(m.Model),
+				Provider:  provider,
+				APIKey:    apiKey,
 			})
 		}
 	}
