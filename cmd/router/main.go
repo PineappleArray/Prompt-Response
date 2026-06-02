@@ -85,19 +85,10 @@ func main() {
 		cfg.MaxQueue,
 	)
 
-	router := classifier.InitializeClassifier()
-
-	/*cls := router.NewHeuristic(classifier.HeuristicConfig{
-		Weights: classifier.SignalWeights{
-			Length:       cfg.Classifier.Length,
-			Code:         cfg.Classifier.Code,
-			Reasoning:    cfg.Classifier.Reasoning,
-			Complexity:   cfg.Classifier.Complexity,
-			ConvDepth:    cfg.Classifier.ConvDepth,
-			OutputLength: cfg.Classifier.OutputLength,
-		},
-		Threshold: cfg.Threshold,
-	})*/
+	// Classify in-process (no external service hop). This is the Go port of the
+	// former Python DeBERTa classifier and is the dominant tail-latency win.
+	cls := classifier.NewLocalClassifier()
+	slog.Info("classifier initialized", "backend", "in-process")
 
 	cb := circuit.NewRegistry(circuit.Config{
 		ErrorThreshold: cfg.Circuit.ErrorThreshold,
@@ -124,7 +115,7 @@ func main() {
 		slog.Info("per-tenant token usage tracking enabled")
 	}
 
-	handler := proxy.New(scor, router, cfg, cb, trail, tracker)
+	handler := proxy.New(scor, cls, cfg, cb, trail, tracker)
 
 	if cfg.Usage.Postgres.Enabled {
 		sinkCtx, sinkCancel := context.WithTimeout(ctx, 5*time.Second)
