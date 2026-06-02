@@ -1,6 +1,6 @@
 first change the deberta classifier from python to go and write that new classifier in classifier.go
-then add hybrid functionality that allows people to send prompts to llm apis as well
+then add hybrid functionality that allows people to send prompts to llm apis ie claude as well
 make tests to check latency
-get the p99 and p50 down currently p99 is 10s and p50 is 5
+check for technical debt and get the p99 and p50 down currently p99 is 10s and p50 is 5 make sure there are no data races or mixed ctx
 change the classification selection method to take into account this hybrid approuch
-make code function with fully vllm and fully api models
+make code function with fully with only vllm and fully with only api models
