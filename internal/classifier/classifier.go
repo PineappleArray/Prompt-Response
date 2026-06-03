@@ -19,6 +19,7 @@ import (
 	"strings"
 	"time"
 
+	"prompt-response/internal/config"
 	"prompt-response/internal/types"
 )
 
@@ -62,6 +63,11 @@ type Response struct {
 	Reason  string
 }
 
+type ClassifierConfig struct {
+	Keywords         config.KeywordSets
+	ClassifierWeight config.ClassifierWeights
+}
+
 // ---------------------------------------------------------------------------
 // Model-tier selection — a faithful port of app/model_select.py
 //
@@ -84,12 +90,12 @@ var tierPriority = map[types.ModelTier]int{
 
 // codeSignals are task-type substrings that force the code tier, mirroring
 // CODE_SIGNALS in app/model_select.py.
-var codeSignals = []string{
-	"html", "css", "javascript", "python", "code",
-	"function", "script", "api", "sql", "regex",
-	"website", "app", "debug", "error", "compile",
-	"algorithm", "class", "import", "return",
-}
+//var codeSignals = []string{
+//	"html", "css", "javascript", "python", "code",
+//	"function", "script", "api", "sql", "regex",
+//	"website", "app", "debug", "error", "compile",
+//	"algorithm", "class", "import", "return",
+//}
 
 // signals is the intermediate signal set produced by a backend (heuristic or
 // neural) and consumed by basePick. Field names mirror the DeBERTa output.
@@ -112,15 +118,22 @@ func (s signals) toMap() map[string]float64 {
 	}
 }
 
+func initConfig(cfg config.Config) ClassifierConfig {
+	return ClassifierConfig{
+		Keywords:         cfg.Keywords,
+		ClassifierWeight: cfg.Classifier,
+	}
+}
+
 // basePick is the static, stateless tier choice from the signals — a direct
 // port of _base_pick(). text is the raw prompt, used to catch fenced code.
-func basePick(s signals, text string) types.ModelTier {
+func (cfg ClassifierConfig) basePick(s signals, text string) types.ModelTier {
 	task := strings.ToLower(s.taskType)
 
 	if task == "code generation" {
 		return types.TierCode
 	}
-	for _, w := range codeSignals {
+	for _, w := range cfg.Keywords.Code {
 		if strings.Contains(task, w) {
 			return types.TierCode
 		}
@@ -156,8 +169,8 @@ func clampUp(picked, current types.ModelTier) types.ModelTier {
 
 // selectTier chooses a tier for a request. current is the tier the conversation
 // was routed to on a previous turn (empty for the first turn). Port of pick().
-func selectTier(s signals, text string, current types.ModelTier) types.ModelTier {
-	chosen := basePick(s, text)
+func (cfg ClassifierConfig) selectTier(s signals, text string, current types.ModelTier) types.ModelTier {
+	chosen := cfg.basePick(s, text)
 	if current != "" {
 		chosen = clampUp(chosen, current)
 	}
@@ -184,14 +197,15 @@ type signalExtractor func(req Request) signals
 // Local runs classification in-process. It is safe for concurrent use: the
 // extractor is a pure function and Local holds no mutable state.
 type Local struct {
+	config  ClassifierConfig
 	extract signalExtractor
 	backend string // for logging/build_reason provenance
 }
 
 // NewLocalClassifier returns the default in-process classifier backed by the
 // heuristic signal extractor. This is the constructor wired into the router.
-func NewLocalClassifier() *Local {
-	return &Local{extract: heuristicSignals, backend: "heuristic"}
+func NewLocalClassifier(cfg ClassifierConfig) *Local {
+	return &Local{extract: cfg.heuristicSignals, backend: "heuristic", config: cfg}
 }
 
 // Classify implements Classifier. It never returns an error — classification is
@@ -200,7 +214,7 @@ func NewLocalClassifier() *Local {
 func (l *Local) Classify(_ context.Context, req Request) (*ClassifyResponse, error) {
 	s := l.extract(req)
 	text := req.SystemPrompt + "\n" + req.UserMessage
-	tier := selectTier(s, text, req.CurrentTier)
+	tier := l.config.selectTier(s, text, req.CurrentTier)
 	reason := s.taskType
 	if reason == "" {
 		reason = l.backend
@@ -231,13 +245,13 @@ func (l *Local) Classify(_ context.Context, req Request) (*ClassifyResponse, err
 //	codeKeywords       = []string{"function", "algorithm", "class", "struct", "interface", "refactor", "debug", "compile", "regex", "sql",("api", "implement"}
 //)
 
-func heuristicSignals(req Request) signals {
+func (cfg ClassifierConfig) heuristicSignals(req Request) signals {
 	lower := strings.ToLower(req.UserMessage)
 
-	reasoning := keywordScore(lower, reasoningKeywords, 2)
-	domain := keywordScore(lower, domainKeywords, 2)
-	creativity := keywordScore(lower, creativityKeywords, 1)
-	constraint := keywordScore(lower, constraintKeywords, 2)
+	reasoning := keywordScore(lower, cfg.Keywords.Reasoning, 2)
+	domain := keywordScore(lower, cfg.Keywords.Domain, 2)
+	creativity := keywordScore(lower, cfg.Keywords.Creativity, 1)
+	constraint := keywordScore(lower, cfg.Keywords.Constraint, 2)
 
 	// Composite score mirrors the Python weighting (contextual_knowledge and
 	// number_of_few_shots heads are unavailable heuristically and folded in via
@@ -249,7 +263,7 @@ func heuristicSignals(req Request) signals {
 	}
 
 	return signals{
-		taskType:   heuristicTaskType(req, lower),
+		taskType:   cfg.heuristicTaskType(req, lower),
 		score:      score,
 		reasoning:  reasoning,
 		domain:     domain,
@@ -258,8 +272,8 @@ func heuristicSignals(req Request) signals {
 	}
 }
 
-func heuristicTaskType(req Request, lower string, keywords KeywordSets) string {
-	if req.HasCode || hasCodeMarker(req.UserMessage) || hasAnyKeyword(lower, keywords.Code) {
+func (cfg ClassifierConfig) heuristicTaskType(req Request, lower string) string {
+	if req.HasCode || hasCodeMarker(req.UserMessage) || hasAnyKeyword(lower, cfg.Keywords.Code) {
 		return "Code Generation"
 	}
 	trimmed := strings.TrimSpace(lower)
