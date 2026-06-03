@@ -52,6 +52,9 @@ type KeywordSets struct {
 	Code       []string `yaml:"code"`
 	Reasoning  []string `yaml:"reasoning"`
 	Complexity []string `yaml:"complexity"`
+	Domain     []string `yaml:"domain"`
+	Creativity []string `yaml:"creativity"`
+	Constraint []string `yaml:"constraint"`
 }
 
 type Repetition struct {

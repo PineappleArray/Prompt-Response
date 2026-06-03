@@ -223,13 +223,13 @@ func (l *Local) Classify(_ context.Context, req Request) (*ClassifyResponse, err
 // the returned signals value.
 // ---------------------------------------------------------------------------
 
-var (
-	reasoningKeywords  = []string{"explain", "why", "compare", "difference", "tradeoff", "design", "architecture", "analyze", "prove", "reason", "step by step", "derive"}
-	domainKeywords     = []string{"medical", "legal", "financial", "quantum", "kernel", "cryptograph", "molecular", "theorem", "protocol", "compiler", "distributed", "kubernetes"}
-	creativityKeywords = []string{"story", "poem", "imagine", "creative", "brainstorm", "write a", "compose", "fictional", "song", "screenplay"}
-	constraintKeywords = []string{"must", "exactly", "only", "at least", "at most", "json", "format", "bullet", "table", "in words", "no more than", "step by step"}
-	codeKeywords       = []string{"function", "algorithm", "class", "struct", "interface", "refactor", "debug", "compile", "regex", "sql", "api", "implement"}
-)
+//var (
+//	reasoningKeywords  = []string{"explain", "why", "compare", "difference", "tradeoff", "design", "architecture", "analyze", "prove", "reason", "step by step", "derive"}
+//	domainKeywords     = []string{"medical", "legal", "financial", "quantum", "kernel", "cryptograph", "molecular", "theorem", "protocol", "compiler", "distributed", "kubernetes"}
+//	creativityKeywords = []string{"story", "poem", "imagine", "creative", "brainstorm", "write a", "compose", "fictional", "song", "screenplay"}
+//	constraintKeywords = []string{"must", "exactly", "only", "at least", "at most", "json", "format", "bullet", "table", "in words", "no more than", "step by step"}
+//	codeKeywords       = []string{"function", "algorithm", "class", "struct", "interface", "refactor", "debug", "compile", "regex", "sql",("api", "implement"}
+//)
 
 func heuristicSignals(req Request) signals {
 	lower := strings.ToLower(req.UserMessage)
@@ -258,8 +258,8 @@ func heuristicSignals(req Request) signals {
 	}
 }
 
-func heuristicTaskType(req Request, lower string) string {
-	if req.HasCode || hasCodeMarker(req.UserMessage) || hasAnyKeyword(lower, codeKeywords) {
+func heuristicTaskType(req Request, lower string, keywords KeywordSets) string {
+	if req.HasCode || hasCodeMarker(req.UserMessage) || hasAnyKeyword(lower, keywords.Code) {
 		return "Code Generation"
 	}
 	trimmed := strings.TrimSpace(lower)

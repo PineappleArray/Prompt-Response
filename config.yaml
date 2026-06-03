@@ -182,10 +182,14 @@ classifier_settings:
   maxTokensForOutputEstimate: 200
 
 keywords:
-  strong_reasoning: ["explain", "reason", "think", "why", "how", "what if", "analyze", "compare", "contrast", "evaluate", "justify", "prove", "disprove"]
-  code: ["code", "program", "script", "function", "class", "def", "import"]
   complexity: ["step by step", "edge case", "production", "distributed", "scale", "optimize"]
-  reasoning: ["explain", "reason", "think", "why", "how", "what if", "analyze", "compare", "contrast", "evaluate", "justify", "prove", "disprove"]
+  reasoning: ["explain", "why", "compare", "difference", "tradeoff", "design", "architecture", "analyze", "prove", "reason", "step by step", "derive"]
+  domain: ["medical", "legal", "financial", "quantum", "kernel", "cryptograph", "molecular", "theorem", "protocol", "compiler", "distributed", "kubernetes"]
+  creativity: ["story", "poem", "imagine", "creative", "brainstorm", "write a", "compose", "fictional", "song", "screenplay"]
+  constraint: ["must", "exactly", "only", "at least", "at most", "json", "format", "bullet", "table", "in words", "no more than", "step by step"]
+  code: ["function", "algorithm", "class", "struct", "interface", "refactor", "debug", "compile", "regex", "sql", "api",="implement"]
+
+
 
 repetition:
   frequency_penalty: 0.2
