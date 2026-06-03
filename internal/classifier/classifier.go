@@ -118,7 +118,7 @@ func (s signals) toMap() map[string]float64 {
 	}
 }
 
-func initConfig(cfg config.Config) ClassifierConfig {
+func InitConfig(cfg config.Config) ClassifierConfig {
 	return ClassifierConfig{
 		Keywords:         cfg.Keywords,
 		ClassifierWeight: cfg.Classifier,

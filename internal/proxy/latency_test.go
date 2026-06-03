@@ -34,9 +34,10 @@ func newLatencyHandler(replicas []config.Replica) *Handler {
 		Circuit:     config.Circuit{ErrorThreshold: 0.5, WindowSize: 10 * time.Second, Cooldown: 30 * time.Second, MinSamples: 5},
 		Retry:       config.Retry{MaxRetries: 1, Timeout: 30 * time.Second},
 	}
+	classifierCfg := classifier.InitConfig(*cfg)
 	scor := scorer.New(replicas, mem, poll, cfg.Weights, cfg.AffinityTTL, cfg.MaxQueue)
 	cr := circuit.NewRegistry(circuit.Config{ErrorThreshold: 0.5, WindowSize: 10 * time.Second, Cooldown: 30 * time.Second, MinSamples: 5})
-	return New(scor, classifier.NewLocalClassifier(), cfg, cr, nil, nil)
+	return New(scor, classifier.NewLocalClassifier(classifierCfg), cfg, cr, nil, nil)
 }
 
 func percentile(sorted []time.Duration, p float64) time.Duration {
@@ -108,7 +109,8 @@ func TestRoutingLatency(t *testing.T) {
 // sub-millisecond — the core of the p50/p99 reduction, since it replaced a
 // multi-second-timeout network call.
 func TestClassifierLatencyIsLocal(t *testing.T) {
-	c := classifier.NewLocalClassifier()
+	classifierCfg := classifier.InitConfig(config.Config{})
+	c := classifier.NewLocalClassifier(classifierCfg)
 	req := classifier.Request{
 		UserMessage: "Compare optimistic and pessimistic locking and explain the tradeoffs.",
 		TokenCount:  16,

@@ -2,14 +2,25 @@ package classifier
 
 import (
 	"context"
+	"log/slog"
+	"os"
 	"testing"
 
+	"prompt-response/internal/config"
 	"prompt-response/internal/types"
 )
 
 // TestBasePick ports the cases from app/model_select_test.py so the Go
 // selection heuristic stays bug-for-bug compatible with the original Python.
 func TestBasePick(t *testing.T) {
+
+	cfg, err := config.Load("config.yaml")
+	if err != nil {
+		slog.Error("failed to load config", "err", err)
+		os.Exit(1)
+	}
+
+	classifierCfg := InitConfig(*cfg)
 	tests := []struct {
 		name string
 		sig  signals
@@ -57,7 +68,7 @@ func TestBasePick(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := basePick(tt.sig, tt.text); got != tt.want {
+			if got := classifierCfg.basePick(tt.sig, tt.text); got != tt.want {
 				t.Errorf("basePick() = %q, want %q", got, tt.want)
 			}
 		})
@@ -67,6 +78,12 @@ func TestBasePick(t *testing.T) {
 // TestSelectTierClampUp covers up-tier-only escalation (port of the tier
 // escalation tests in model_select_test.py): a conversation's tier only rises.
 func TestSelectTierClampUp(t *testing.T) {
+	cfg, err := config.Load("config.yaml")
+	if err != nil {
+		slog.Error("failed to load config", "err", err)
+		os.Exit(1)
+	}
+	classifierCfg := InitConfig(*cfg)
 	tests := []struct {
 		name    string
 		sig     signals
@@ -101,7 +118,7 @@ func TestSelectTierClampUp(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := selectTier(tt.sig, "", tt.current); got != tt.want {
+			if got := classifierCfg.selectTier(tt.sig, "", tt.current); got != tt.want {
 				t.Errorf("selectTier() = %q, want %q", got, tt.want)
 			}
 		})
@@ -110,7 +127,13 @@ func TestSelectTierClampUp(t *testing.T) {
 
 // TestLocalClassify exercises the full in-process path end to end.
 func TestLocalClassify(t *testing.T) {
-	c := NewLocalClassifier()
+	cfg, err := config.Load("config.yaml")
+	if err != nil {
+		slog.Error("failed to load config", "err", err)
+		os.Exit(1)
+	}
+	classifierCfg := InitConfig(*cfg)
+	c := NewLocalClassifier(classifierCfg)
 
 	tests := []struct {
 		name     string
@@ -153,7 +176,13 @@ func TestLocalClassify(t *testing.T) {
 // BenchmarkLocalClassify guards the in-process hot path: classification must be
 // allocation-light and fast (it replaced a multi-millisecond network call).
 func BenchmarkLocalClassify(b *testing.B) {
-	c := NewLocalClassifier()
+	cfg, err := config.Load("config.yaml")
+	if err != nil {
+		slog.Error("failed to load config", "err", err)
+		os.Exit(1)
+	}
+	classifierCfg := InitConfig(*cfg)
+	c := NewLocalClassifier(classifierCfg)
 	req := Request{
 		UserMessage: "Explain the tradeoffs between optimistic and pessimistic locking in a distributed database, with examples.",
 		TokenCount:  24,

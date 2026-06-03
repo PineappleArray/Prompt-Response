@@ -87,7 +87,8 @@ func main() {
 
 	// Classify in-process (no external service hop). This is the Go port of the
 	// former Python DeBERTa classifier and is the dominant tail-latency win.
-	cls := classifier.NewLocalClassifier()
+	classifierCfg := classifier.InitConfig(*cfg)
+	cls := classifier.NewLocalClassifier(classifierCfg)
 	slog.Info("classifier initialized", "backend", "in-process")
 
 	cb := circuit.NewRegistry(circuit.Config{
