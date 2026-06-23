@@ -97,12 +97,11 @@ weights:
   miss_penalty: 0.25
 
 classifier:
-  length: 0.20
-  code: 0.30
-  reasoning: 0.15
-  complexity: 0.10
-  conv_depth: 0.10
-  output_length: 0.15
+  creativity: 0.20
+  reasoning: 0.40
+  constraint: 0.15
+  domain: 0.15
+  length: 0.10
 
 circuit:
   error_threshold: 0.5
@@ -156,13 +155,18 @@ classifier_settings:
   maxTokensForOutputEstimate: 200
 
 keywords:
-  strong_reasoning: ["explain", "reason", "think", "why", "how", "what if", "analyze", "compare", "contrast", "evaluate", "justify", "prove", "disprove"]
+  # strong_reasoning: single hit routes reasoning signal to 0.70, triggering large tier when score >= 0.55
+  strong_reasoning: ["prove", "disprove", "derive", "theorem", "formal proof", "mathematical induction", "step by step reasoning", "chain of thought"]
   code: ["code", "program", "script", "function", "class", "def", "import"]
   complexity: ["step by step", "edge case", "production", "distributed", "scale", "optimize"]
   reasoning: ["explain", "reason", "think", "why", "how", "what if", "analyze", "compare", "contrast", "evaluate", "justify", "prove", "disprove"]
   domain: ["medical", "legal", "financial", "quantum", "kernel", "cryptograph", "molecular", "theorem", "protocol", "compiler", "distributed", "kubernetes"]
   creativity: ["story", "poem", "imagine", "creative", "brainstorm", "write a", "compose", "fictional", "song", "screenplay"]
   constraint: ["must", "exactly", "only", "at least", "at most", "json", "format", "bullet", "table", "in words", "no more than", "step by step"]
+
+# Optional: if set, the Go router pushes its classifier config to this Python
+# classifier service on startup so both sides stay in sync.
+classifier_endpoint: ""
 
 repetition:
   frequency_penalty: 0.2

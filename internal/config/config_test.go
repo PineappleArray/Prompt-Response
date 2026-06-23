@@ -105,23 +105,20 @@ func TestLoad_ClassifierDefaults(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	c := cfg.Classifier
-	if c.Length != 0.20 {
-		t.Errorf("expected classifier length 0.20, got %f", c.Length)
+	if c.Creativity != 0.35 {
+		t.Errorf("expected classifier creativity 0.35, got %f", c.Creativity)
 	}
-	if c.Code != 0.30 {
-		t.Errorf("expected classifier code 0.30, got %f", c.Code)
+	if c.Reasoning != 0.25 {
+		t.Errorf("expected classifier reasoning 0.25, got %f", c.Reasoning)
 	}
-	if c.Reasoning != 0.15 {
-		t.Errorf("expected classifier reasoning 0.15, got %f", c.Reasoning)
+	if c.Constraint != 0.15 {
+		t.Errorf("expected classifier constraint 0.15, got %f", c.Constraint)
 	}
-	if c.Complexity != 0.10 {
-		t.Errorf("expected classifier complexity 0.10, got %f", c.Complexity)
+	if c.Domain != 0.15 {
+		t.Errorf("expected classifier domain 0.15, got %f", c.Domain)
 	}
-	if c.ConvDepth != 0.10 {
-		t.Errorf("expected classifier conv_depth 0.10, got %f", c.ConvDepth)
-	}
-	if c.OutputLength != 0.15 {
-		t.Errorf("expected classifier output_length 0.15, got %f", c.OutputLength)
+	if c.Length != 0.10 {
+		t.Errorf("expected classifier length 0.10, got %f", c.Length)
 	}
 }
 

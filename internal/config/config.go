@@ -37,7 +37,9 @@ type Config struct {
 	Threshold    float64           `yaml:"threshold"`
 	MaxQueue     float64           `yaml:"max_queue"`
 	PollInterval time.Duration     `yaml:"poll_interval"`
-	Keywords     KeywordSets       `yaml:"keywords"`
+	Keywords              KeywordSets        `yaml:"keywords"`
+	ClassifierSettings    ClassifierSettings `yaml:"classifier_settings"`
+	ClassifierEndpoint    string             `yaml:"classifier_endpoint"`
 
 	// Replicas is the flattened runtime replica list, built from Models by
 	// Load via ToReplicaList. It is not read from YAML.
@@ -49,12 +51,13 @@ type Config struct {
 // ---------------------------------------------------------------------------
 
 type KeywordSets struct {
-	Code       []string `yaml:"code"`
-	Reasoning  []string `yaml:"reasoning"`
-	Complexity []string `yaml:"complexity"`
-	Domain     []string `yaml:"domain"`
-	Creativity []string `yaml:"creativity"`
-	Constraint []string `yaml:"constraint"`
+	Code            []string `yaml:"code"`
+	Reasoning       []string `yaml:"reasoning"`
+	StrongReasoning []string `yaml:"strong_reasoning"`
+	Complexity      []string `yaml:"complexity"`
+	Domain          []string `yaml:"domain"`
+	Creativity      []string `yaml:"creativity"`
+	Constraint      []string `yaml:"constraint"`
 }
 
 type Repetition struct {
@@ -75,12 +78,20 @@ type Retry struct {
 }
 
 type ClassifierWeights struct {
-	Length       float64 `yaml:"length"`
-	Code         float64 `yaml:"code"`
-	Reasoning    float64 `yaml:"reasoning"`
-	Complexity   float64 `yaml:"complexity"`
-	ConvDepth    float64 `yaml:"conv_depth"`
-	OutputLength float64 `yaml:"output_length"`
+	Creativity float64 `yaml:"creativity"`
+	Reasoning  float64 `yaml:"reasoning"`
+	Constraint float64 `yaml:"constraint"`
+	Domain     float64 `yaml:"domain"`
+	Length     float64 `yaml:"length"`
+}
+
+type ClassifierSettings struct {
+	MaxTokensForNormalization  int `yaml:"maxTokensForNormalization"`
+	CodeKeywordThreshold       int `yaml:"codeKeywordThreshold"`
+	ReasoningKeywordThreshold  int `yaml:"reasoningKeywordThreshold"`
+	ComplexityKeywordThreshold int `yaml:"complexityKeywordThreshold"`
+	MaxConversationDepth       int `yaml:"maxConversationDepth"`
+	MaxTokensForOutputEstimate int `yaml:"maxTokensForOutputEstimate"`
 }
 
 type Redis struct {
@@ -327,13 +338,31 @@ func applyDefaults(cfg *Config) {
 		cfg.PollInterval = 2 * time.Second
 	}
 	c := &cfg.Classifier
-	if c.Length == 0 && c.Code == 0 && c.Reasoning == 0 {
-		c.Length = 0.20
-		c.Code = 0.30
-		c.Reasoning = 0.15
-		c.Complexity = 0.10
-		c.ConvDepth = 0.10
-		c.OutputLength = 0.15
+	if c.Creativity == 0 && c.Reasoning == 0 && c.Domain == 0 {
+		c.Creativity = 0.35
+		c.Reasoning = 0.25
+		c.Constraint = 0.15
+		c.Domain = 0.15
+		c.Length = 0.10
+	}
+	s := &cfg.ClassifierSettings
+	if s.MaxTokensForNormalization == 0 {
+		s.MaxTokensForNormalization = 120
+	}
+	if s.ReasoningKeywordThreshold == 0 {
+		s.ReasoningKeywordThreshold = 2
+	}
+	if s.ComplexityKeywordThreshold == 0 {
+		s.ComplexityKeywordThreshold = 2
+	}
+	if s.CodeKeywordThreshold == 0 {
+		s.CodeKeywordThreshold = 3
+	}
+	if s.MaxConversationDepth == 0 {
+		s.MaxConversationDepth = 5
+	}
+	if s.MaxTokensForOutputEstimate == 0 {
+		s.MaxTokensForOutputEstimate = 200
 	}
 	if cfg.Circuit.ErrorThreshold == 0 {
 		cfg.Circuit.ErrorThreshold = 0.5

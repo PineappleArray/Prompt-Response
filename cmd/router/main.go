@@ -1,7 +1,9 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"io/fs"
 	"log/slog"
 	"net/http"
@@ -86,6 +88,12 @@ func main() {
 		cfg.AffinityTTL,
 		cfg.MaxQueue,
 	)
+
+	if cfg.ClassifierEndpoint != "" {
+		pushCtx, pushCancel := context.WithTimeout(ctx, 5*time.Second)
+		pushClassifierConfig(pushCtx, cfg.ClassifierEndpoint, cfg)
+		pushCancel()
+	}
 
 	// Classify in-process (no external service hop). This is the Go port of the
 	// former Python DeBERTa classifier and is the dominant tail-latency win.
@@ -203,6 +211,44 @@ func main() {
 		slog.Error("shutdown error", "err", err)
 	}
 	slog.Info("shutdown complete")
+}
+
+// pushClassifierConfig posts the Go classifier weights to an external Python
+// classifier service so both sides compute the same complexity score. It is
+// best-effort: a failure logs a warning but does not block startup.
+func pushClassifierConfig(ctx context.Context, endpoint string, cfg *config.Config) {
+	payload := struct {
+		ScoreWeights map[string]float64 `json:"score_weights"`
+	}{
+		ScoreWeights: map[string]float64{
+			"creativity": cfg.Classifier.Creativity,
+			"reasoning":  cfg.Classifier.Reasoning,
+			"constraint": cfg.Classifier.Constraint,
+			"domain":     cfg.Classifier.Domain,
+		},
+	}
+	body, err := json.Marshal(payload)
+	if err != nil {
+		slog.Warn("classifier config push: marshal failed", "err", err)
+		return
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint+"/configure", bytes.NewReader(body))
+	if err != nil {
+		slog.Warn("classifier config push: build request failed", "err", err)
+		return
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		slog.Warn("classifier config push: request failed", "endpoint", endpoint, "err", err)
+		return
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		slog.Warn("classifier config push: unexpected status", "endpoint", endpoint, "status", resp.StatusCode)
+		return
+	}
+	slog.Info("classifier config pushed", "endpoint", endpoint)
 }
 
 // spaHandler serves a React SPA from fsys. Requests for files that exist are

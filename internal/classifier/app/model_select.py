@@ -86,15 +86,22 @@ def _base_pick(r, text=""):
         if score < 0.55:
             return MEDIUM
 
-    # Simple QA / Classification with low complexity
+    # Simple QA / Classification with low-to-moderate complexity.
+    # Threshold raised to 0.35: extraction tasks that DeBERTa mislabels as
+    # "Closed QA" / "Open QA" score 0.20–0.34 and should not reach reasoning tier.
     is_simple = task in _QA_TYPES or task in _CLASSIFICATION_TYPES
-    if is_simple and score < 0.15 and reasoning < 0.15:
+    if is_simple and score < 0.35 and reasoning < 0.25:
         return SMALL
 
     # High-complexity routing
     if reasoning >= 0.70 and score >= 0.55:
         return LARGE
     if score >= 0.65 and domain >= 0.80 and constraint >= 0.60:
+        return LARGE
+    # Long-form generation with strong domain expertise and tight constraints
+    # (e.g. research papers, comprehensive analyses) warrants large tier even
+    # when the composite score is moderate.
+    if task in _GENERATION_TYPES and score >= 0.35 and domain >= 0.90 and constraint >= 0.75:
         return LARGE
 
     return REASONING

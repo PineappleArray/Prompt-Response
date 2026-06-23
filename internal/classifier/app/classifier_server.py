@@ -1,12 +1,29 @@
+import json
+import logging
+import threading
+
 import numpy as np
 import torch
 import torch.nn as nn
-from huggingface_hub import PyTorchModelHubMixin
-from transformers import AutoConfig, AutoModel, AutoTokenizer
-from huggingface_hub import hf_hub_download
-import json
+from huggingface_hub import PyTorchModelHubMixin, hf_hub_download
 from safetensors.torch import load_file
-import threading
+from transformers import AutoConfig, AutoModel, AutoTokenizer
+
+logger = logging.getLogger(__name__)
+
+# Score weights for prompt_complexity_score. Pushed from Go config via /configure
+# so both the heuristic and DeBERTa paths compute the same composite score.
+_score_weights: dict[str, float] = {
+    "creativity": 0.20,
+    "reasoning":  0.40,
+    "constraint": 0.15,
+    "domain":     0.15,
+    "contextual": 0.05,
+    "few_shots":  0.05,
+}
+
+def update_score_weights(weights: dict[str, float]) -> None:
+    _score_weights.update(weights)
 
 _tokenizer_lock = threading.Lock()
 
@@ -35,41 +52,22 @@ class CustomModel(nn.Module, PyTorchModelHubMixin):
         self.task_type_map = task_type_map
         self.weights_map = weights_map
         self.divisor_map = divisor_map
+        self._weight_arrays: dict[str, np.ndarray] = {k: np.array(v) for k, v in weights_map.items()}
+        # precomputed at init so forward has no per-call dict membership tests
+        self._scoring_heads: frozenset[str] = frozenset(k for k in weights_map if k in divisor_map)
         self.heads = nn.ModuleList(
             [MulticlassHead(self.backbone.config.hidden_size, target_sizes[name])
              for name in self.target_names]
         )
         self.pool = MeanPooling()
 
-    def _score(self, preds, target):
-        w = np.array(self.weights_map[target])
-        d = self.divisor_map[target]
-        return float((preds.detach().cpu().numpy() * w).sum(axis=1)[0] / d)
-
     def forward(self, batch):
         out = self.backbone(
             input_ids=batch["input_ids"], attention_mask=batch["attention_mask"]
         )
         pooled = self.pool(out.last_hidden_state, batch["attention_mask"])
-        logits = [torch.softmax(h(pooled), dim=1) for h in self.heads]
-
-        r = {}
-        for name, lg in zip(self.target_names, logits):
-            if name == "task_type":
-                idx = int(torch.topk(lg, k=1, dim=1).indices[0, 0].item())
-                r["task_type"] = self.task_type_map[str(idx)]
-            elif name in self.weights_map and name in self.divisor_map:
-                r[name] = self._score(lg, name)
-
-        r["prompt_complexity_score"] = (
-            0.35 * r.get("creativity_scope", 0.0)
-            + 0.25 * r.get("reasoning", 0.0)
-            + 0.15 * r.get("constraint_ct", 0.0)
-            + 0.15 * r.get("domain_knowledge", 0.0)
-            + 0.05 * r.get("contextual_knowledge", 0.0)
-            + 0.05 * r.get("number_of_few_shots", 0.0)
-        )
-        return r
+        # return raw softmax tensors — no numpy/Python logic inside the graph
+        return [torch.softmax(h(pooled), dim=1) for h in self.heads]
 
 
 # ---------------------------------------------------------------------------
@@ -88,7 +86,7 @@ task_type_map = cfg_json["task_type_map"]
 weights_map   = cfg_json["weights_map"]
 divisor_map   = cfg_json["divisor_map"]
 
-classifier_model = CustomModel(
+_orig_model = CustomModel(
     target_sizes=target_sizes,
     task_type_map=task_type_map,
     weights_map=weights_map,
@@ -111,25 +109,73 @@ for k, v in state_dict.items():
     else:
         remapped[k] = v
 
-missing, unexpected = classifier_model.load_state_dict(remapped, strict=False)
-print(f"Missing keys ({len(missing)}):", missing[:5])
-print(f"Unexpected keys ({len(unexpected)}):", unexpected[:5])
+missing, unexpected = _orig_model.load_state_dict(remapped, strict=False)
+logger.info("model weights loaded: missing=%d unexpected=%d", len(missing), len(unexpected))
+if missing:
+    logger.debug("missing keys (first 5): %s", missing[:5])
+if unexpected:
+    logger.debug("unexpected keys (first 5): %s", unexpected[:5])
 
-classifier_model = classifier_model.to(DEVICE).eval()
 tokenizer = AutoTokenizer.from_pretrained(MODEL_REPO)
-print("Head order:", classifier_model.target_names)
+
+# move to device and set eval mode BEFORE compiling so the graph targets the right device
+_orig_model = _orig_model.to(DEVICE).eval()
+# torch.compile on CPU triggers Inductor C++ codegen that recompiles for every
+# new sequence length — makes first call per shape take 30-120s, not a win.
+# Only compile on CUDA where kernel fusion actually helps.
+if DEVICE == "cuda":
+    classifier_model = torch.compile(_orig_model, dynamic=True)
+else:
+    classifier_model = _orig_model
+
+logger.info("model ready: device=%s compiled=%s head_order=%s", DEVICE, DEVICE == "cuda", _orig_model.target_names)
+
+def _tokenize(text: str, max_length: int = 512) -> dict[str, torch.Tensor]:
+    """Smart-truncating tokenizer: single lock acquire, no re-tokenization."""
+    with _tokenizer_lock:
+        ids = tokenizer.encode(text, add_special_tokens=False)
+        if len(ids) > max_length - 2:
+            half = (max_length - 2) // 2
+            ids = ids[:half] + ids[-half:]
+    cls_id, sep_id = tokenizer.cls_token_id, tokenizer.sep_token_id
+    full_ids = (([cls_id] if cls_id is not None else []) + ids +
+                ([sep_id] if sep_id is not None else []))
+    input_ids = torch.tensor([full_ids], dtype=torch.long)
+    attention_mask = torch.ones_like(input_ids)
+    return {"input_ids": input_ids, "attention_mask": attention_mask}
+
 
 @torch.inference_mode()
 def classify_prompt(prompt: str) -> dict:
-    with _tokenizer_lock:
-        enc = tokenizer(
-            [prompt], return_tensors="pt", add_special_tokens=True,
-            max_length=512, padding="max_length", truncation=True,
-        ).to(DEVICE)
-        return classifier_model(enc)
+    enc = _tokenize(prompt)
+    # move tensors to device outside the tokenizer lock
+    enc = {k: v.to(DEVICE) for k, v in enc.items()}
+    logits = classifier_model(enc)
+
+    r: dict = {}
+    for name, lg in zip(_orig_model.target_names, logits):
+        lg_np = lg.cpu().numpy()
+        if name == "task_type":
+            r["task_type"] = _orig_model.task_type_map[str(int(lg_np[0].argmax()))]
+        elif name in _orig_model._scoring_heads:
+            w = _orig_model._weight_arrays[name]
+            d = _orig_model.divisor_map[name]
+            r[name] = float((lg_np * w).sum(axis=1)[0] / d)
+
+    sw = _score_weights
+    r["prompt_complexity_score"] = (
+        sw["creativity"] * r.get("creativity_scope", 0.0)
+        + sw["reasoning"]  * r.get("reasoning", 0.0)
+        + sw["constraint"] * r.get("constraint_ct", 0.0)
+        + sw["domain"]     * r.get("domain_knowledge", 0.0)
+        + sw["contextual"] * r.get("contextual_knowledge", 0.0)
+        + sw["few_shots"]  * r.get("number_of_few_shots", 0.0)
+    )
+    return r
 
 
-def smart_truncate(text, max_length=512):
+def smart_truncate(text: str, max_length: int = 512) -> str:
+    """Returns text truncated to max_length tokens using head+tail strategy."""
     with _tokenizer_lock:
         tokens = tokenizer.encode(text, add_special_tokens=False)
     if len(tokens) <= max_length:

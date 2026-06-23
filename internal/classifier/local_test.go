@@ -14,7 +14,7 @@ import (
 // selection heuristic stays bug-for-bug compatible with the original Python.
 func TestBasePick(t *testing.T) {
 
-	cfg, err := config.Load("config.yaml")
+	cfg, err := config.Load("../../config.yaml")
 	if err != nil {
 		slog.Error("failed to load config", "err", err)
 		os.Exit(1)
@@ -78,7 +78,7 @@ func TestBasePick(t *testing.T) {
 // TestSelectTierClampUp covers up-tier-only escalation (port of the tier
 // escalation tests in model_select_test.py): a conversation's tier only rises.
 func TestSelectTierClampUp(t *testing.T) {
-	cfg, err := config.Load("config.yaml")
+	cfg, err := config.Load("../../config.yaml")
 	if err != nil {
 		slog.Error("failed to load config", "err", err)
 		os.Exit(1)
@@ -127,7 +127,7 @@ func TestSelectTierClampUp(t *testing.T) {
 
 // TestLocalClassify exercises the full in-process path end to end.
 func TestLocalClassify(t *testing.T) {
-	cfg, err := config.Load("config.yaml")
+	cfg, err := config.Load("../../config.yaml")
 	if err != nil {
 		slog.Error("failed to load config", "err", err)
 		os.Exit(1)
@@ -176,7 +176,7 @@ func TestLocalClassify(t *testing.T) {
 // BenchmarkLocalClassify guards the in-process hot path: classification must be
 // allocation-light and fast (it replaced a multi-millisecond network call).
 func BenchmarkLocalClassify(b *testing.B) {
-	cfg, err := config.Load("config.yaml")
+	cfg, err := config.Load("../../config.yaml")
 	if err != nil {
 		slog.Error("failed to load config", "err", err)
 		os.Exit(1)

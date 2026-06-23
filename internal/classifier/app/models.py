@@ -17,3 +17,7 @@ class Resp(BaseModel):
     signals: dict[str, float]
     build_reason: str
     bucket: str = ""              # complexity-score band for the request
+
+
+class ConfigReq(BaseModel):
+    score_weights: dict[str, float] = {}   # pushed from Go classifier weights

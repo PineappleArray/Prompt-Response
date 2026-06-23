@@ -1,5 +1,5 @@
 from fastapi import FastAPI
-from app.models import Req, Resp
+from app.models import Req, Resp, ConfigReq
 from app import classifier_server
 from app.model_select import pick, MODEL_TO_TIER
 
@@ -22,9 +22,8 @@ def score_bucket(score: float) -> str:
 @app.post("/classify", response_model=Resp)
 def classify(req: Req):
     text = req.prompt or req.user_message
-    truncated = classifier_server.smart_truncate(text)
-    r = classifier_server.classify_prompt(truncated)
-    model_id = pick(r, current_tier=req.current_tier)
+    r = classifier_server.classify_prompt(text)
+    model_id = pick(r, text=text, current_tier=req.current_tier)
     score = r.get("prompt_complexity_score", 0.0)
     return Resp(
         tier=MODEL_TO_TIER.get(model_id, "small"),
@@ -33,6 +32,13 @@ def classify(req: Req):
         build_reason=r.get("task_type", ""),
         bucket=score_bucket(score),
     )
+
+
+@app.post("/configure")
+def configure(req: ConfigReq):
+    if req.score_weights:
+        classifier_server.update_score_weights(req.score_weights)
+    return {"status": "ok"}
 
 
 @app.get("/health")

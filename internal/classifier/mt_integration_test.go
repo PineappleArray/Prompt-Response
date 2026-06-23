@@ -245,8 +245,11 @@ func TestIntegrationMTBench(t *testing.T) {
 	t.Logf("\n  Overall tier distribution:")
 	for _, tier := range []string{"small", "code", "reasoning", "large"} {
 		count := tierCounts[tier]
-		pct := float64(count) / float64(successful) * 100
-		bar := strings.Repeat("█", int(pct/2))
+		pct := 0.0
+		if successful > 0 {
+			pct = float64(count) / float64(successful) * 100
+		}
+		bar := strings.Repeat("█", max(0, int(pct/2)))
 		t.Logf("    %-10s  %3d (%5.1f%%)  %s", tier, count, pct, bar)
 	}
 

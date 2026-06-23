@@ -68,6 +68,7 @@ type Response struct {
 type ClassifierConfig struct {
 	Keywords         config.KeywordSets
 	ClassifierWeight config.ClassifierWeights
+	Settings         config.ClassifierSettings
 }
 
 // ---------------------------------------------------------------------------
@@ -124,6 +125,7 @@ func InitConfig(cfg config.Config) ClassifierConfig {
 	return ClassifierConfig{
 		Keywords:         cfg.Keywords,
 		ClassifierWeight: cfg.Classifier,
+		Settings:         cfg.ClassifierSettings,
 	}
 }
 
@@ -142,6 +144,12 @@ func (cfg ClassifierConfig) basePick(s signals, text string) types.ModelTier {
 	}
 	if text != "" && hasCodeMarker(text) && s.score < 0.60 {
 		return types.TierCode
+	}
+
+	// Summarization and extraction need moderate capability but not deep reasoning —
+	// matches Python _base_pick which was missing from the Go port.
+	if (task == "summarization" || task == "extraction") && s.score < 0.55 {
+		return types.TierMedium
 	}
 
 	isQA := strings.Contains(task, "qa") || task == "classification"
@@ -249,17 +257,29 @@ func (l *Local) Classify(_ context.Context, req Request) (*ClassifyResponse, err
 
 func (cfg ClassifierConfig) heuristicSignals(req Request) signals {
 	lower := strings.ToLower(req.UserMessage)
+	s := cfg.Settings
+	w := cfg.ClassifierWeight
 
-	reasoning := keywordScore(lower, cfg.Keywords.Reasoning, 2)
-	domain := keywordScore(lower, cfg.Keywords.Domain, 2)
+	reasoning := keywordScore(lower, cfg.Keywords.Reasoning, s.ReasoningKeywordThreshold)
+	domain := keywordScore(lower, cfg.Keywords.Domain, s.ReasoningKeywordThreshold)
 	creativity := keywordScore(lower, cfg.Keywords.Creativity, 1)
-	constraint := keywordScore(lower, cfg.Keywords.Constraint, 2)
+	constraint := keywordScore(lower, cfg.Keywords.Constraint, s.ComplexityKeywordThreshold)
+
+	// Strong reasoning keywords clamp the reasoning signal to 0.70, which
+	// combined with score >= 0.55 triggers large-tier routing in basePick.
+	if len(cfg.Keywords.StrongReasoning) > 0 && hasAnyKeyword(lower, cfg.Keywords.StrongReasoning) {
+		reasoning = math.Max(reasoning, 0.70)
+	}
 
 	// Composite score mirrors the Python weighting (contextual_knowledge and
 	// number_of_few_shots heads are unavailable heuristically and folded in via
 	// a small length term instead).
-	lengthTerm := math.Min(1.0, float64(req.TokenCount)/120.0)
-	score := 0.35*creativity + 0.25*reasoning + 0.15*constraint + 0.15*domain + 0.10*lengthTerm
+	maxTokens := s.MaxTokensForNormalization
+	if maxTokens <= 0 {
+		maxTokens = 120
+	}
+	lengthTerm := math.Min(1.0, float64(req.TokenCount)/float64(maxTokens))
+	score := w.Creativity*creativity + w.Reasoning*reasoning + w.Constraint*constraint + w.Domain*domain + w.Length*lengthTerm
 	if score > 1 {
 		score = 1
 	}
