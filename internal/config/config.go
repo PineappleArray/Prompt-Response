@@ -138,6 +138,7 @@ type UsagePostgres struct {
 type Stream struct {
 	StallTimeout time.Duration `yaml:"stall_timeout"`
 	DoneTimeout  time.Duration `yaml:"done_timeout"`
+	ITLTimeout   time.Duration `yaml:"itl_timeout"` // max gap between tokens mid-stream
 }
 
 // ---------------------------------------------------------------------------
@@ -364,6 +365,9 @@ func applyDefaults(cfg *Config) {
 	if cfg.Stream.StallTimeout == 0 {
 		cfg.Stream.StallTimeout = 15 * time.Second
 	}
+	if cfg.Stream.ITLTimeout == 0 {
+		cfg.Stream.ITLTimeout = 10 * time.Second
+	}
 	if cfg.Repetition.FrequencyPenalty == nil {
 		defaultFreq := 0.2
 		cfg.Repetition.FrequencyPenalty = &defaultFreq
@@ -454,8 +458,8 @@ func validate(cfg *Config) error {
 				if _, ok := apiProviderDefaults[provider]; !ok {
 					return fmt.Errorf("model tier %s: replica %s has unknown provider %q", t.Name, m.ID, m.Provider)
 				}
-				// API replicas resolve their URL from config or provider
-				// defaults, so an explicit url is optional here.
+				// API replicas resolve their URL from config or provider defaults,
+				// so an explicit url is optional here.
 			} else if m.URL == "" {
 				return fmt.Errorf("model tier %s: replica %s missing url", t.Name, m.ID)
 			}
@@ -511,6 +515,9 @@ func validate(cfg *Config) error {
 	}
 	if cfg.Stream.DoneTimeout < 0 {
 		return fmt.Errorf("stream done_timeout must be non-negative, got %v", cfg.Stream.DoneTimeout)
+	}
+	if cfg.Stream.ITLTimeout < 0 {
+		return fmt.Errorf("stream itl_timeout must be non-negative, got %v", cfg.Stream.ITLTimeout)
 	}
 	if cfg.Repetition.FrequencyPenalty != nil {
 		fp := *cfg.Repetition.FrequencyPenalty

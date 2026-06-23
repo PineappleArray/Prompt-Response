@@ -200,6 +200,13 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		result.Tier = finalTier
 	}
 
+	// If the client explicitly named a valid tier via the model field, use it as
+	// a floor — never route below what the user asked for. The classifier can
+	// still escalate above it.
+	if explicit := clientRequestedTier(body); explicit != "" {
+		result.Tier = h.replicas.HigherTier(explicit, result.Tier)
+	}
+
 	metrics.ClassifierScore.WithLabelValues(string(result.Tier)).Observe(result.Score)
 
 	// Retry loop: attempt the request on the best replica, retrying on upstream
@@ -336,8 +343,8 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// requests avoid this replica.
 	var midStreamStall atomic.Bool
 	var watchdog *stallWatchdog
-	if stall := h.cfg.Stream.StallTimeout; stall > 0 {
-		watchdog = newStallWatchdog(stall, sw.LastActivity, func() {
+	if itlTimeout := h.cfg.Stream.ITLTimeout; itlTimeout > 0 {
+		watchdog = newStallWatchdog(itlTimeout, sw.LastActivity, func() {
 			midStreamStall.Store(true)
 			cancelUpstream()
 		})
@@ -352,6 +359,16 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	ttft := totalDuration
 	if stats.Wrote {
 		ttft = stats.FirstByteAt.Sub(start)
+	}
+
+	if midStreamStall.Load() {
+		// Write an SSE error frame so the client sees a clean error rather than
+		// a silently truncated stream.
+		fmt.Fprintf(w, "data: {\"error\":{\"message\":\"upstream stalled: no token for %s\",\"type\":\"stream_stall\"}}\n\ndata: [DONE]\n\n",
+			h.cfg.Stream.ITLTimeout.String())
+		if f, ok := w.(http.Flusher); ok {
+			f.Flush()
+		}
 	}
 
 	if midStreamStall.Load() || !stats.DoneSeen {
@@ -471,27 +488,28 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// doUpstream sends the request body to the given replica and returns the raw
-// response. It dispatches by provider: local vLLM replicas are reverse-proxied
-// as-is, while API providers (e.g. Anthropic) translate the OpenAI request and
-// stream a translated OpenAI-compatible SSE response. The caller is responsible
-// for closing resp.Body. In every case the body the caller reads is
-// OpenAI-compatible SSE, so the stream interceptor and client are unchanged.
+// doUpstream sends the request body to the given replica and returns the
+// raw response. The caller is responsible for closing resp.Body.
 func (h *Handler) doUpstream(ctx context.Context, replica config.Replica, body []byte, orig *http.Request) (*http.Response, error) {
-	if replica.IsAPI() {
-		switch replica.Provider {
-		case types.ProviderAnthropic:
-			return h.doUpstreamAnthropic(ctx, replica, body)
-		default:
-			return nil, fmt.Errorf("unsupported api provider %q for replica %s", replica.Provider, replica.ID)
-		}
-	}
 	return h.doUpstreamVLLM(ctx, replica, body, orig)
 }
 
-// doUpstreamVLLM reverse-proxies the request to a local vLLM replica unchanged.
+// doUpstreamVLLM overrides the model field in the body with the replica's
+// actual loaded model name, and always forwards to /v1/chat/completions
+// regardless of what path the client used.
 func (h *Handler) doUpstreamVLLM(ctx context.Context, replica config.Replica, body []byte, orig *http.Request) (*http.Response, error) {
-	upstreamURL := replica.URL + orig.URL.Path
+	// Override model field so vLLM receives its actual loaded model name,
+	// not whatever tier name or alias the client sent.
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(body, &raw); err == nil {
+		if modelJSON, err := json.Marshal(replica.Model); err == nil {
+			raw["model"] = modelJSON
+			if out, err := json.Marshal(raw); err == nil {
+				body = out
+			}
+		}
+	}
+	upstreamURL := replica.URL + "/v1/chat/completions"
 	req, err := http.NewRequestWithContext(ctx, orig.Method, upstreamURL, bytes.NewReader(body))
 	if err != nil {
 		return nil, err
@@ -802,6 +820,24 @@ func hasCodeBlock(text string) bool {
 		strings.Contains(text, "func ") ||
 		strings.Contains(text, "def ") ||
 		strings.Contains(text, "class ")
+}
+
+// clientRequestedTier returns the tier that the client requested via the model
+// field, if it names a valid tier. The client-side model selector sends tier
+// names ("small", "medium", "large", etc.). If the field is empty, unrecognised,
+// or names an actual model path, we return "" and let the classifier decide.
+func clientRequestedTier(body []byte) types.ModelTier {
+	var req struct {
+		Model string `json:"model"`
+	}
+	if err := json.Unmarshal(body, &req); err != nil || req.Model == "" {
+		return ""
+	}
+	t := types.ModelTier(req.Model)
+	if types.ValidTier(t) {
+		return t
+	}
+	return ""
 }
 
 func (h *Handler) injectDefaults(body []byte) []byte {

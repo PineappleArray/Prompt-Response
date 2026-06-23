@@ -92,6 +92,7 @@ func (sw *slidingWindow) totals(now time.Time) (successes, failures int) {
 //   - Open: requests rejected immediately; transitions to HalfOpen after cooldown.
 //   - HalfOpen: one probe request allowed; success closes, failure re-opens.
 type Breaker struct {
+	id         string // replica ID, used in log messages
 	mu         sync.Mutex
 	state      State
 	window     slidingWindow
@@ -102,8 +103,9 @@ type Breaker struct {
 	now        func() time.Time // injectable clock for testing
 }
 
-func newBreaker(threshold float64, windowSize, cooldown time.Duration, minSamples int, now func() time.Time) *Breaker {
+func newBreaker(id string, threshold float64, windowSize, cooldown time.Duration, minSamples int, now func() time.Time) *Breaker {
 	return &Breaker{
+		id:         id,
 		state:      StateClosed,
 		window:     newSlidingWindow(windowSize, now()),
 		cooldown:   cooldown,
@@ -146,6 +148,7 @@ func (b *Breaker) RecordSuccess() {
 	if b.state == StateHalfOpen {
 		b.state = StateClosed
 		b.window = newSlidingWindow(b.window.bucketDur*numBuckets, now)
+		slog.Info("circuit breaker closed", "replica", b.id)
 	}
 }
 
@@ -167,6 +170,7 @@ func (b *Breaker) RecordFailure() {
 				b.state = StateOpen
 				b.openedAt = now
 				slog.Warn("circuit breaker opened",
+					"replica", b.id,
 					"error_rate", errorRate,
 					"threshold", b.threshold,
 					"total", total,
@@ -176,6 +180,7 @@ func (b *Breaker) RecordFailure() {
 	case StateHalfOpen:
 		b.state = StateOpen
 		b.openedAt = now
+		slog.Warn("circuit breaker re-opened (probe failed)", "replica", b.id)
 	}
 }
 
@@ -252,7 +257,7 @@ func (reg *Registry) getOrCreate(id string) *Breaker {
 	if b, ok = reg.breakers[id]; ok {
 		return b
 	}
-	b = newBreaker(reg.threshold, reg.windowSize, reg.cooldown, reg.minSamples, reg.now)
+	b = newBreaker(id, reg.threshold, reg.windowSize, reg.cooldown, reg.minSamples, reg.now)
 	reg.breakers[id] = b
 	return b
 }

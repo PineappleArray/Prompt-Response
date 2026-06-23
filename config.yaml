@@ -84,33 +84,6 @@ Models:
         url: http://localhost:8006
         model: Qwen/QwQ-32B-AWQ
 
-# ---------------------------------------------------------------------------
-# Hybrid routing: vLLM replicas and external LLM APIs in the same tiers
-#
-# A replica is a local vLLM server by default (provider: vllm, needs `url`).
-# Set `provider: anthropic` to route a tier (or part of one) to Claude instead.
-# API replicas need no `url` — it is resolved from ANTHROPIC_BASE_URL (falling
-# back to https://api.anthropic.com) — and read their credential from the env
-# var named by `api_key_env` (default ANTHROPIC_API_KEY). Secrets stay out of
-# YAML. API replicas are not health-polled; the circuit breaker guards them.
-#
-# Mix providers within a tier for hybrid, use only vLLM replicas for a pure
-# local deployment, or use only API replicas for a pure-API deployment:
-#
-#   - name: large
-#     priority: 4
-#     routing:
-#       rules: [{ min_reasoning: 0.70, min_score: 0.55 }]
-#     models:
-#       - id: replica-large-1            # local vLLM
-#         url: http://localhost:8005
-#         model: Qwen/Qwen2.5-72B-Instruct-AWQ
-#       - id: claude-sonnet              # external API, same tier
-#         provider: anthropic
-#         model: claude-sonnet-4-6
-#         api_key_env: ANTHROPIC_API_KEY
-# ---------------------------------------------------------------------------
-
 redis:
   addr: localhost:6379
 
@@ -144,6 +117,7 @@ retry:
 stream:
   stall_timeout: 15s
   done_timeout: 0s
+  itl_timeout: 10s
 
 auth:
   enabled: false
@@ -182,14 +156,13 @@ classifier_settings:
   maxTokensForOutputEstimate: 200
 
 keywords:
+  strong_reasoning: ["explain", "reason", "think", "why", "how", "what if", "analyze", "compare", "contrast", "evaluate", "justify", "prove", "disprove"]
+  code: ["code", "program", "script", "function", "class", "def", "import"]
   complexity: ["step by step", "edge case", "production", "distributed", "scale", "optimize"]
-  reasoning: ["explain", "why", "compare", "difference", "tradeoff", "design", "architecture", "analyze", "prove", "reason", "step by step", "derive"]
+  reasoning: ["explain", "reason", "think", "why", "how", "what if", "analyze", "compare", "contrast", "evaluate", "justify", "prove", "disprove"]
   domain: ["medical", "legal", "financial", "quantum", "kernel", "cryptograph", "molecular", "theorem", "protocol", "compiler", "distributed", "kubernetes"]
   creativity: ["story", "poem", "imagine", "creative", "brainstorm", "write a", "compose", "fictional", "song", "screenplay"]
   constraint: ["must", "exactly", "only", "at least", "at most", "json", "format", "bullet", "table", "in words", "no more than", "step by step"]
-  code: ["function", "algorithm", "class", "struct", "interface", "refactor", "debug", "compile", "regex", "sql", "api",="implement"]
-
-
 
 repetition:
   frequency_penalty: 0.2

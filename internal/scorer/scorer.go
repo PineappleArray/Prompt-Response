@@ -3,6 +3,7 @@ package scorer
 import (
 	"log/slog"
 	"math"
+	"sort"
 	"time"
 
 	"prompt-response/internal/config"
@@ -45,54 +46,112 @@ func New(
 }
 
 // Pick selects the best replica for a request, preferring replicas that match
-// the requested tier. Falls back to any healthy replica if no tier match exists.
+// the requested tier. If no healthy replica exists at the requested tier,
+// escalates to tiers with higher priority (more compute). Never downgrades.
 // Replicas in the excluded set or with an open circuit breaker are skipped.
 func (s *Scorer) Pick(prefixHash uint64, tier types.ModelTier, cc CircuitChecker, excluded map[string]bool) config.Replica {
 	affinityID, hasAffinity := s.store.GetAffinity(prefixHash)
 	states := s.poller.Snapshot()
 
-	var best config.Replica
-	bestScore := -1.0
-	var fallback config.Replica
-	fallbackScore := -1.0
+	// Build ascending-priority tier list starting from the requested tier.
+	// We only escalate upward (higher compute), never downgrade.
+	tiersToTry := s.tiersAtOrAbove(tier)
 
-	for _, r := range s.replicas {
-		state, ok := states[r.ID]
-		if !ok || !state.Healthy {
-			continue
-		}
-		if excluded != nil && excluded[r.ID] {
-			continue
-		}
-		if cc != nil && !cc.Allow(r.ID) {
-			continue
-		}
-
-		hit := hasAffinity && affinityID == r.ID
-		score := s.score(hit, state.QueueDepth, state.KVCacheUtil)
-
-		if r.Tier == tier {
+	for _, t := range tiersToTry {
+		var best config.Replica
+		bestScore := -1.0
+		for _, r := range s.replicas {
+			if r.Tier != t {
+				continue
+			}
+			state, ok := states[r.ID]
+			if !ok || !state.Healthy {
+				continue
+			}
+			if excluded != nil && excluded[r.ID] {
+				continue
+			}
+			if cc != nil && !cc.Allow(r.ID) {
+				continue
+			}
+			hit := hasAffinity && affinityID == r.ID
+			score := s.scoreReplica(r, hit, state)
 			if score > bestScore {
 				bestScore = score
 				best = r
 			}
-		} else if score > fallbackScore {
-			fallbackScore = score
-			fallback = r
+		}
+		if best.ID != "" {
+			if t != tier {
+				slog.Warn("no replicas at requested tier, escalating to higher tier",
+					"requested_tier", tier,
+					"actual_tier", t,
+				)
+			}
+			return best
 		}
 	}
 
-	if best.ID != "" {
-		return best
+	return config.Replica{} // all tiers at or above requested tier are down
+}
+
+// tiersAtOrAbove returns tier names in ascending priority order, starting
+// with the requested tier and only including tiers at or above it.
+// This ensures fallback always escalates to more capable models.
+//
+// When no replica carries a non-zero TierCfg.Priority (e.g. in unit tests that
+// construct bare config.Replica values), escalation is disabled and only the
+// exact requested tier is returned.
+func (s *Scorer) tiersAtOrAbove(tier types.ModelTier) []types.ModelTier {
+	type tierPri struct {
+		name     types.ModelTier
+		priority int
 	}
-	if fallback.ID != "" {
-		slog.Warn("no tier-matched replica, falling back",
-			"requested_tier", tier,
-			"fallback_replica", fallback.ID,
-			"fallback_tier", fallback.Tier,
-		)
+
+	// Collect unique tiers with their priorities.
+	seen := make(map[types.ModelTier]int)
+	requestedPri := 0
+	for _, r := range s.replicas {
+		if _, ok := seen[r.Tier]; !ok {
+			seen[r.Tier] = r.TierCfg.Priority
+		}
+		if r.Tier == tier && r.TierCfg.Priority > requestedPri {
+			requestedPri = r.TierCfg.Priority
+		}
 	}
-	return fallback
+
+	// If no priority information is available (all zeros), escalation cannot
+	// be performed safely — just try the exact requested tier.
+	if requestedPri == 0 {
+		return []types.ModelTier{tier}
+	}
+
+	// Filter to tiers at or above the requested priority.
+	var candidates []tierPri
+	for name, pri := range seen {
+		if pri >= requestedPri {
+			candidates = append(candidates, tierPri{name, pri})
+		}
+	}
+
+	// Sort ascending by priority so we try the closest tier first.
+	sort.Slice(candidates, func(i, j int) bool {
+		if candidates[i].priority != candidates[j].priority {
+			return candidates[i].priority < candidates[j].priority
+		}
+		return string(candidates[i].name) < string(candidates[j].name)
+	})
+
+	result := make([]types.ModelTier, len(candidates))
+	for i, t := range candidates {
+		result[i] = t.name
+	}
+	return result
+}
+
+// scoreReplica computes a selection score for a replica given its current state.
+func (s *Scorer) scoreReplica(r config.Replica, hit bool, state poller.State) float64 {
+	return s.score(hit, state.QueueDepth, state.KVCacheUtil)
 }
 
 func (s *Scorer) RecordHit(prefixHash uint64, replicaID string) {

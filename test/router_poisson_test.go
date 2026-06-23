@@ -320,7 +320,7 @@ func TestPoissonMTBench(t *testing.T) {
 	t.Logf("accuracy=%.1f%% total_errors=%d steady_state_err_rate=%.1f%%",
 		accuracy*100, errCount, errRate*100)
 
-	for _, key := range []string{"small", "code", "reasoning", "large"} {
+	for _, key := range []string{"small", "code", "medium", "reasoning", "large"} {
 		lat := steadyStateLatencyMS(&res, key)
 		if len(lat) == 0 {
 			continue

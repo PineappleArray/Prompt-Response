@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"io/fs"
 	"log/slog"
 	"net/http"
 	"os"
@@ -22,6 +23,7 @@ import (
 	"prompt-response/internal/scorer"
 	"prompt-response/internal/store"
 	"prompt-response/internal/usage"
+	"prompt-response/internal/web"
 
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
@@ -171,6 +173,7 @@ func main() {
 
 	mux := http.NewServeMux()
 	mux.Handle("/metrics", promhttp.Handler())
+	mux.Handle("/dashboard/", spaHandler(web.FS()))
 	mux.HandleFunc("/dashboard", func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/dashboard/", http.StatusMovedPermanently)
 	})
@@ -200,6 +203,24 @@ func main() {
 		slog.Error("shutdown error", "err", err)
 	}
 	slog.Info("shutdown complete")
+}
+
+// spaHandler serves a React SPA from fsys. Requests for files that exist are
+// served directly; all other paths return index.html so the client-side router
+// can take over (required for /dashboard/some-sub-route navigations).
+func spaHandler(fsys fs.FS) http.Handler {
+	hfs := http.FS(fsys)
+	files := http.FileServer(hfs)
+	return http.StripPrefix("/dashboard/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		f, err := hfs.Open(r.URL.Path)
+		if err != nil {
+			r = r.Clone(r.Context())
+			r.URL.Path = "/"
+		} else {
+			f.Close()
+		}
+		files.ServeHTTP(w, r)
+	}))
 }
 
 func init() {

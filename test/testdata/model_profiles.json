@@ -22,6 +22,17 @@
       "decode_tps": 100,
       "max_concurrent": 16
     },
+    "medium": {
+      "name": "qwen2.5-14b-instruct-awq",
+      "params_b": 14,
+      "quantization": "int4",
+      "bytes_per_param": 0.5,
+      "vram_weights_gb": 7,
+      "kv_cache_per_token_mb": 0.18,
+      "prefill_tps": 1800,
+      "decode_tps": 65,
+      "max_concurrent": 8
+    },
     "reasoning": {
       "name": "qwen2.5-7B-instruct-awq",
       "params_b": 7,

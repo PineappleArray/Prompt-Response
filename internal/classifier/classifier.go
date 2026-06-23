@@ -1,3 +1,5 @@
+//ADD BATCHING TO THIS
+
 // Package classifier turns an incoming prompt into a routing decision: which
 // model tier should serve it. It historically delegated to a Python FastAPI
 // service running an NVIDIA DeBERTa model (see internal/classifier/app). That
@@ -272,9 +274,31 @@ func (cfg ClassifierConfig) heuristicSignals(req Request) signals {
 	}
 }
 
+// heuristicTaskType maps surface features of a request to one of the task type
+// labels produced by the NVIDIA DeBERTa classifier, keeping the Go and Python
+// routing paths compatible without a network hop.
+//
+// Task types (matches nvidia/prompt-task-and-complexity-classifier output):
+//   "Code Generation", "Summarization", "Extraction", "Classification",
+//   "Text Generation", "Dialogue", "QA", "Open QA"
 func (cfg ClassifierConfig) heuristicTaskType(req Request, lower string) string {
 	if req.HasCode || hasCodeMarker(req.UserMessage) || hasAnyKeyword(lower, cfg.Keywords.Code) {
 		return "Code Generation"
+	}
+	if hasAnyKeyword(lower, []string{"summarize", "summary", "tldr", "condense", "shorten", "brief overview"}) {
+		return "Summarization"
+	}
+	if hasAnyKeyword(lower, []string{"extract", "pull out", "find all", "list all", "identify all"}) {
+		return "Extraction"
+	}
+	if hasAnyKeyword(lower, []string{"classify", "categorize", "label", "which category", "what type of", "is this a"}) {
+		return "Classification"
+	}
+	if hasAnyKeyword(lower, []string{"write a ", "write me a", "generate a", "compose a", "create a", "draft a"}) {
+		return "Text Generation"
+	}
+	if req.ConvTurns > 0 && hasAnyKeyword(lower, []string{"continue", "follow up", "also", "and what about", "what else"}) {
+		return "Dialogue"
 	}
 	trimmed := strings.TrimSpace(lower)
 	if strings.HasSuffix(trimmed, "?") ||

@@ -82,9 +82,12 @@ func TestPick_FallbackWhenNoTierMatch(t *testing.T) {
 	poll := poller.New(replicas, 0)
 
 	s := New(replicas, mem, poll, defaultWeights(), 5*time.Minute, 20)
-	got := s.Pick(123, types.TierLarge, nil, nil) // no large tier exists
-	if got.ID != "small-1" {
-		t.Errorf("should fall back to small-1, got %s", got.ID)
+	// The requested tier "large" does not exist and replicas have no priority
+	// configured (all zeros), so escalation is not possible. Pick returns an
+	// empty Replica rather than downgrading to a lower-compute tier.
+	got := s.Pick(123, types.TierLarge, nil, nil)
+	if got.ID != "" {
+		t.Errorf("expected empty replica (no downgrade), got %s", got.ID)
 	}
 }
 

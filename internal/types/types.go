@@ -100,6 +100,7 @@ type TierConfig struct {
 const (
 	ProviderVLLM      = "vllm"
 	ProviderAnthropic = "anthropic"
+	ProviderOpenAI    = "openai"
 )
 
 // Replica is a single model server instance. It may be a local vLLM replica

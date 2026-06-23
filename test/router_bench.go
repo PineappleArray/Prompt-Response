@@ -82,6 +82,18 @@ func (r *KeywordRouter) Route(req Request) string {
 		}
 	}
 
+	// Summarization / extraction → medium. Mirrors heuristicTaskType routing
+	// added to the classifier for these task types.
+	mediumKeywords := []string{
+		"summarize", "summary", "tldr", "condense", "shorten",
+		"extract", "pull out", "find all", "list all", "identify all",
+	}
+	for _, kw := range mediumKeywords {
+		if strings.Contains(text, kw) {
+			return "medium"
+		}
+	}
+
 	reasoningKeywords := []string{"explain", "why", "step by step", "analyze",
 		"compare", "reason", "think through", "evaluate", "pros and cons"}
 	for _, kw := range reasoningKeywords {
@@ -303,14 +315,15 @@ func LoadMTBench(path string) ([]MTBenchPrompt, error) {
 
 // CategoryModelMap defines the expected routing target for each MT-Bench category.
 var CategoryModelMap = map[string]string{
-	"writing":    "small",
-	"roleplay":   "small",
-	"extraction": "small",
-	"stem":       "reasoning",
-	"reasoning":  "reasoning",
-	"math":       "reasoning",
-	"coding":     "code",
-	"humanities": "reasoning",
+	"writing":       "small",
+	"roleplay":      "small",
+	"extraction":    "medium",
+	"summarization": "medium",
+	"stem":          "reasoning",
+	"reasoning":     "reasoning",
+	"math":          "reasoning",
+	"coding":        "code",
+	"humanities":    "reasoning",
 }
 
 func MTBenchToRequests(prompts []MTBenchPrompt) []Request {

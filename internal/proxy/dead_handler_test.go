@@ -50,6 +50,7 @@ func newDeadDetectHandler(replicas []config.Replica, stallTimeout time.Duration)
 		},
 		Stream: config.Stream{
 			StallTimeout: stallTimeout,
+			ITLTimeout:   stallTimeout, // mid-stream watchdog uses ITLTimeout
 		},
 	}
 	scor := scorer.New(replicas, mem, poll, cfg.Weights, cfg.AffinityTTL, cfg.MaxQueue)
@@ -195,11 +196,17 @@ func TestDeadReplica_MidStreamStall(t *testing.T) {
 	h.ServeHTTP(w, req)
 	elapsed := time.Since(start)
 
-	if !strings.Contains(w.Body.String(), "partial") {
-		t.Errorf("expected partial output forwarded before abort, got %q", w.Body.String())
+	body := w.Body.String()
+	if !strings.Contains(body, "partial") {
+		t.Errorf("expected partial output forwarded before abort, got %q", body)
 	}
-	if strings.Contains(w.Body.String(), "[DONE]") {
-		t.Errorf("must not see [DONE] from a stalled replica, got %q", w.Body.String())
+	// The router now writes an SSE error frame followed by [DONE] so the client
+	// knows the stream terminated due to a mid-stream stall.
+	if !strings.Contains(body, "stream_stall") {
+		t.Errorf("expected stream_stall error frame in response, got %q", body)
+	}
+	if !strings.Contains(body, "[DONE]") {
+		t.Errorf("expected [DONE] sentinel after error frame, got %q", body)
 	}
 	// Watchdog should fire within ~stall_timeout × 1.25 + jitter.
 	if elapsed > time.Second {
