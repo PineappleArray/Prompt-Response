@@ -113,7 +113,7 @@ function MessageBubble({ role, content, isStreaming }: MessageBubbleProps) {
 export default function ChatView({ selectedModel }: { selectedModel: string }) {
   // Point this at the Go backend's stream endpoint (Vite proxies /v1 → :8080).
   const { messages, input, isStreaming, error, send, stop, setInput, clearError } =
-    useChat("/v1/stream");
+    useChat("/v1/chat/completions");
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);

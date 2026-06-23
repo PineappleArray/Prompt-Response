@@ -1,6 +1,8 @@
 import { useState, useRef, useEffect } from "react";
 import ChatView from "./ChatView";
 import MetricsPage from "./MetricsPage";
+import TraceView from "./TraceView";
+import DemoView from "./DemoView";
 import { shellStyle } from "./theme";
 
 // ── Types ──────────────────────────────────────────────────────────
@@ -10,20 +12,24 @@ type Model = {
   badge: string;
 };
 
-type View = "chat" | "usage";
+type View = "chat" | "usage" | "trace" | "demo";
 
 // ── Constants ──────────────────────────────────────────────────────
 const MODELS: Model[] = [
-  { id: "opus", label: "Qwen2.5-72B-Instruct-AWQ", badge: "Most Powerful" },
-  { id: "sonnet", label: "Qwen2.5-7B-Instruct-AWQ", badge: "Balanced" },
-  { id: "haiku", label: "Qwen2.5-14B-Instruct-AWQ", badge: "Fastest" },
-]; 
+  { id: "reasoning", label: "QwQ-32B", badge: "Chain-of-Thought" },
+  { id: "large",     label: "Qwen2.5-72B", badge: "Most Powerful" },
+  { id: "medium",    label: "Qwen2.5-14B", badge: "Balanced" },
+  { id: "code",      label: "Qwen2.5-Coder-7B", badge: "Code Optimized" },
+  { id: "small",     label: "Qwen2.5-1.5B", badge: "Fastest" },
+];
 
 // ── Nav tabs ───────────────────────────────────────────────────────
 function NavTabs({ view, onChange }: { view: View; onChange: (v: View) => void }) {
   const tabs: { id: View; label: string }[] = [
     { id: "chat", label: "Chat" },
     { id: "usage", label: "Usage" },
+    { id: "trace", label: "Trace" },
+    { id: "demo", label: "Demo" },
   ];
   return (
     <div style={{ display: "flex", gap: 4 }}>
@@ -64,7 +70,7 @@ function NavTabs({ view, onChange }: { view: View; onChange: (v: View) => void }
 // ── Main shell ─────────────────────────────────────────────────────
 export default function App() {
   const [view, setView] = useState<View>("chat");
-  const [selectedModel, setSelectedModel] = useState<string>("sonnet");
+  const [selectedModel, setSelectedModel] = useState<string>("medium");
   const [modelDropdownOpen, setModelDropdownOpen] = useState<boolean>(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
@@ -226,7 +232,15 @@ export default function App() {
       </div>
 
       {/* Body */}
-      {view === "chat" ? <ChatView selectedModel={selectedModel} /> : <MetricsPage />}
+      {view === "chat" ? (
+        <ChatView selectedModel={selectedModel} />
+      ) : view === "usage" ? (
+        <MetricsPage />
+      ) : view === "trace" ? (
+        <TraceView />
+      ) : (
+        <DemoView />
+      )}
     </div>
   );
 }

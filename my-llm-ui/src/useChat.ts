@@ -64,7 +64,9 @@ function reducer(state: State, action: Action): State {
     case "STREAM_TOKEN": {
       const msgs = [...state.messages];
       const last = msgs[msgs.length - 1];
-      msgs[msgs.length - 1] = { ...last, content: last.content + action.payload };
+      // Trim leading whitespace only from the first chunk of a new message.
+      const incoming = last.content === "" ? action.payload.trimStart() : action.payload;
+      msgs[msgs.length - 1] = { ...last, content: last.content + incoming };
       return { ...state, messages: msgs };
     }
 
@@ -114,7 +116,12 @@ export function useChat(apiUrl: string = "/v1/chat/completions") {
 
         if (!res.ok) {
           const text = await res.text();
-          dispatch({ type: "STREAM_ERROR", payload: `${res.status}: ${text}` });
+          let msg = text.trim();
+          try {
+            const parsed = JSON.parse(text);
+            if (parsed?.error?.message) msg = parsed.error.message;
+          } catch { /* keep raw */ }
+          dispatch({ type: "STREAM_ERROR", payload: `${res.status}: ${msg}` });
           return;
         }
 

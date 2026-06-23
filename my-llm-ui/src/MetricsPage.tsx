@@ -195,6 +195,7 @@ export default function MetricsPage() {
                   <thead>
                     <tr style={{ color: "var(--text-muted)", textAlign: "left" }}>
                       <th style={thStyle}>Replica</th>
+                      <th style={thStyle}>Provider</th>
                       <th style={thStyle}>Tier</th>
                       <th style={thStyle}>Status</th>
                       <th style={thStyle}>Queue</th>
@@ -206,12 +207,13 @@ export default function MetricsPage() {
                     {replicaData.map((r) => (
                       <tr key={r.id} style={{ borderTop: "1px solid var(--border-color)" }}>
                         <td style={tdStyle}>{r.id}</td>
+                        <td style={tdStyle}>{r.provider}</td>
                         <td style={tdStyle}>{r.tier}</td>
                         <td style={{ ...tdStyle, color: r.healthy ? "#3f7d4f" : "#8b3a2a", fontWeight: 550 }}>
                           {r.healthy ? "healthy" : "down"}
                         </td>
-                        <td style={tdStyle}>{r.queue_depth}</td>
-                        <td style={tdStyle}>{(r.kv_cache_util * 100).toFixed(0)}%</td>
+                        <td style={tdStyle}>{r.queue_depth ?? "—"}</td>
+                        <td style={tdStyle}>{r.kv_cache_util !== undefined ? (r.kv_cache_util * 100).toFixed(0) + "%" : "—"}</td>
                         <td style={tdStyle}>{r.circuit}</td>
                       </tr>
                     ))}

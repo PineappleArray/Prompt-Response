@@ -16,13 +16,15 @@ export type UsageResponse = {
 };
 
 export type ReplicaStatus = {
+  provider: string;
   id: string;
   model: string;
   tier: string;
   healthy: boolean;
-  queue_depth: number;
-  kv_cache_util: number;
-  running: number;
+  // vLLM-only fields — absent for API provider replicas.
+  queue_depth?: number;
+  kv_cache_util?: number;
+  running?: number;
   circuit: string;
   error_rate: number;
 };
