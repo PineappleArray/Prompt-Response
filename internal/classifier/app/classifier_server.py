@@ -174,6 +174,49 @@ def classify_prompt(prompt: str) -> dict:
     return r
 
 
+def _pad_to(encs: list[dict], device: str) -> dict[str, torch.Tensor]:
+    max_len = max(e["input_ids"].shape[1] for e in encs)
+    ids, masks = [], []
+    for e in encs:
+        pad = max_len - e["input_ids"].shape[1]
+        ids.append(torch.nn.functional.pad(e["input_ids"], (0, pad)))
+        masks.append(torch.nn.functional.pad(e["attention_mask"], (0, pad)))
+    return {
+        "input_ids": torch.cat(ids).to(device),
+        "attention_mask": torch.cat(masks).to(device),
+    }
+
+
+@torch.inference_mode()
+def classify_batch(prompts: list[str]) -> list[dict]:
+    encs = [_tokenize(p) for p in prompts]
+    batch = _pad_to(encs, DEVICE)
+    logits_list = classifier_model(batch)
+
+    results = []
+    for i in range(len(prompts)):
+        r: dict = {}
+        for name, lg in zip(_orig_model.target_names, logits_list):
+            lg_np = lg[i:i+1].cpu().numpy()
+            if name == "task_type":
+                r["task_type"] = _orig_model.task_type_map[str(int(lg_np[0].argmax()))]
+            elif name in _orig_model._scoring_heads:
+                w = _orig_model._weight_arrays[name]
+                d = _orig_model.divisor_map[name]
+                r[name] = float((lg_np * w).sum(axis=1)[0] / d)
+        sw = _score_weights
+        r["prompt_complexity_score"] = (
+            sw["creativity"] * r.get("creativity_scope", 0.0)
+            + sw["reasoning"]  * r.get("reasoning", 0.0)
+            + sw["constraint"] * r.get("constraint_ct", 0.0)
+            + sw["domain"]     * r.get("domain_knowledge", 0.0)
+            + sw["contextual"] * r.get("contextual_knowledge", 0.0)
+            + sw["few_shots"]  * r.get("number_of_few_shots", 0.0)
+        )
+        results.append(r)
+    return results
+
+
 def smart_truncate(text: str, max_length: int = 512) -> str:
     """Returns text truncated to max_length tokens using head+tail strategy."""
     with _tokenizer_lock:

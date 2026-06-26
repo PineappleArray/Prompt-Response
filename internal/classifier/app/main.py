@@ -34,6 +34,24 @@ def classify(req: Req):
     )
 
 
+@app.post("/classify_batch", response_model=list[Resp])
+def classify_batch(reqs: list[Req]):
+    texts = [r.prompt or r.user_message for r in reqs]
+    batch_r = classifier_server.classify_batch(texts)
+    out = []
+    for req, r in zip(reqs, batch_r):
+        model_id = pick(r, text=req.prompt or req.user_message, current_tier=req.current_tier)
+        score = r.get("prompt_complexity_score", 0.0)
+        out.append(Resp(
+            tier=MODEL_TO_TIER.get(model_id, "small"),
+            score=score,
+            signals={k: v for k, v in r.items() if isinstance(v, float)},
+            build_reason=r.get("task_type", ""),
+            bucket=score_bucket(score),
+        ))
+    return out
+
+
 @app.post("/configure")
 def configure(req: ConfigReq):
     if req.score_weights:

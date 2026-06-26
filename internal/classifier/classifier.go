@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"math"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 
@@ -299,8 +300,9 @@ func (cfg ClassifierConfig) heuristicSignals(req Request) signals {
 // routing paths compatible without a network hop.
 //
 // Task types (matches nvidia/prompt-task-and-complexity-classifier output):
-//   "Code Generation", "Summarization", "Extraction", "Classification",
-//   "Text Generation", "Dialogue", "QA", "Open QA"
+//
+//	"Code Generation", "Summarization", "Extraction", "Classification",
+//	"Text Generation", "Dialogue", "QA", "Open QA"
 func (cfg ClassifierConfig) heuristicTaskType(req Request, lower string) string {
 	if req.HasCode || hasCodeMarker(req.UserMessage) || hasAnyKeyword(lower, cfg.Keywords.Code) {
 		return "Code Generation"
@@ -407,8 +409,162 @@ func (c *Router) Classify(ctx context.Context, req Request) (*ClassifyResponse, 
 	return &result, nil
 }
 
-// Compile-time checks that both backends satisfy the interface.
+// ---------------------------------------------------------------------------
+// BatchRouter — batched HTTP backend
+//
+// Collects Classify calls within a short time window and sends them to
+// /classify_batch in a single HTTP round-trip, amortizing network overhead
+// across concurrent requests. Outliers (token count > 2× median) are flushed
+// solo after the normal batch so they don't inflate padding for everyone else.
+// ---------------------------------------------------------------------------
+
+type batchItem struct {
+	req  Request
+	resp chan batchResult
+}
+
+type batchResult struct {
+	r   *ClassifyResponse
+	err error
+}
+
+type BatchRouter struct {
+	endpoint   string
+	httpClient *http.Client
+	queue      chan batchItem
+	maxBatch   int
+	maxWait    time.Duration
+}
+
+func NewBatchRouter(endpoint string, maxBatch int, maxWait time.Duration) *BatchRouter {
+	b := &BatchRouter{
+		endpoint:   endpoint,
+		httpClient: &http.Client{Timeout: 5 * time.Second},
+		queue:      make(chan batchItem, maxBatch*4),
+		maxBatch:   maxBatch,
+		maxWait:    maxWait,
+	}
+	go b.loop()
+	return b
+}
+
+func (b *BatchRouter) Classify(ctx context.Context, req Request) (*ClassifyResponse, error) {
+	ch := make(chan batchResult, 1)
+	select {
+	case b.queue <- batchItem{req: req, resp: ch}:
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+	select {
+	case res := <-ch:
+		return res.r, res.err
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+}
+
+func (b *BatchRouter) loop() {
+	for {
+		first, ok := <-b.queue
+		if !ok {
+			return
+		}
+		items := []batchItem{first}
+		deadline := time.After(b.maxWait)
+	drain:
+		for len(items) < b.maxBatch {
+			select {
+			case item := <-b.queue:
+				items = append(items, item)
+			case <-deadline:
+				break drain
+			}
+		}
+		b.flush(items)
+	}
+}
+
+func (b *BatchRouter) flush(items []batchItem) {
+	sort.Slice(items, func(i, j int) bool {
+		return items[i].req.TokenCount < items[j].req.TokenCount
+	})
+
+	var normal, outliers []batchItem
+	if len(items) > 1 {
+		median := items[len(items)/2].req.TokenCount
+		cutoff := median * 2
+		for _, it := range items {
+			if it.req.TokenCount > cutoff {
+				outliers = append(outliers, it)
+			} else {
+				normal = append(normal, it)
+			}
+		}
+	} else {
+		normal = items
+	}
+
+	if len(normal) > 0 {
+		b.flushBatch(normal)
+	}
+	for _, it := range outliers {
+		b.flushBatch([]batchItem{it})
+	}
+}
+
+func (b *BatchRouter) flushBatch(items []batchItem) {
+	reqs := make([]Request, len(items))
+	for i, it := range items {
+		reqs[i] = it.req
+	}
+	body, err := json.Marshal(reqs)
+	if err != nil {
+		for _, it := range items {
+			it.resp <- batchResult{err: fmt.Errorf("marshaling batch: %w", err)}
+		}
+		return
+	}
+	httpReq, err := http.NewRequest(http.MethodPost, b.endpoint+"/classify_batch", bytes.NewReader(body))
+	if err != nil {
+		for _, it := range items {
+			it.resp <- batchResult{err: fmt.Errorf("creating batch request: %w", err)}
+		}
+		return
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+
+	resp, err := b.httpClient.Do(httpReq)
+	if err != nil {
+		for _, it := range items {
+			it.resp <- batchResult{err: fmt.Errorf("batch classify: %w", err)}
+		}
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		for _, it := range items {
+			it.resp <- batchResult{err: fmt.Errorf("classifier returned %d", resp.StatusCode)}
+		}
+		return
+	}
+
+	var results []ClassifyResponse
+	if err := json.NewDecoder(resp.Body).Decode(&results); err != nil {
+		for _, it := range items {
+			it.resp <- batchResult{err: fmt.Errorf("decoding batch response: %w", err)}
+		}
+		return
+	}
+	for i, it := range items {
+		r := results[i]
+		it.resp <- batchResult{r: &r}
+	}
+}
+
+// Compile-time checks that all backends satisfy the interface.
 var (
 	_ Classifier = (*Local)(nil)
 	_ Classifier = (*Router)(nil)
+	_ Classifier = (*BatchRouter)(nil)
 )
